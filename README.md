@@ -52,6 +52,28 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 
 `content`는 분석에만 쓰고 저장하지 않습니다.
 
+### 크롤러 (`crawler/`)
+
+뉴스 목록 페이지에서 기사를 모아 위 형식으로 한 번에 보냅니다. 서버와 따로 실행합니다.
+
+```
+.venv\Scripts\python -m pip install -r crawler\requirements.txt
+.venv\Scripts\python crawler\crawler.py              # 기본 목록 4곳(경향신문·뉴스펭귄·한겨레·Daum 기후) 수집 후 전송
+.venv\Scripts\python crawler\crawler.py --dry-run    # 보내지 않고 보낼 내용만 확인
+.venv\Scripts\python crawler\crawler.py <목록 주소>   # 원하는 목록 페이지만 수집
+```
+
+| 환경 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `API_URL` | `http://localhost:8001` | 서버 주소 |
+| `INGEST_TOKEN` | 없음 | 서버에 설정한 값과 같게 넣으면 `X-Ingest-Token` 헤더로 보냅니다 |
+
+- `published_at`은 `YYYY-MM-DD`(한국 시간 기준 날짜)로 보냅니다.
+- 본문이 없는 기사(이미지만 있는 기사 등)는 보내지 않습니다.
+- 보냈거나 제외한 URL은 `crawler/sent_urls.txt`에 기록해 다음 실행 때 다시 열지 않습니다.
+- 전송에 실패한 기사는 `crawler/pending_articles.json`에 두었다가 다음 실행 때 먼저 보냅니다.
+- 언론사를 추가하려면 `crawler.py`의 `SITE_RULES`에 목록 링크·본문 CSS 선택자를 넣습니다. 규칙이 없는 사이트는 자동 판별로 수집합니다.
+
 ### Gemini 담당
 
 `app/extract.py`의 `extract()`를 교체하면 됩니다. 지금은 키워드로 홍수·산불·폭염만 구분하는 임시 규칙입니다. 반환 형식은 `app/main.py`의 `DisasterIn`이고, 서버가 검증한 뒤 저장합니다.
