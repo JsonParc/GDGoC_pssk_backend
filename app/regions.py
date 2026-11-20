@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -204,12 +205,12 @@ async def collect_documents(conn: sqlite3.Connection, http: httpx.AsyncClient, n
     return list(docs.values())[:rx.MAX_DOCS]  # 검색 순서 유지 (날짜순으로 자르면 오래된 재난이 빠짐)
 
 
-def extract_changes(docs: list[dict]) -> list[dict]:
+def extract_changes(docs: list[dict], deadline: float | None = None) -> list[dict]:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise extract.GeminiError("GEMINI_API_KEY가 설정되지 않았습니다.")
     text = f"{rx.PROMPT}\n검색 결과:\n{rx.format_docs(docs)}"
-    raw = extract.call_gemini(text, rx.RESPONSE_SCHEMA, key).get("changes") or []
+    raw = extract.call_gemini(text, rx.RESPONSE_SCHEMA, key, deadline=deadline).get("changes") or []
     return rx.merge([c for c in (rx.verify(r, docs) for r in raw) if c])
 
 
@@ -361,11 +362,12 @@ def analysis_result(conn: sqlite3.Connection, region_id: int, disaster_type: str
 # ───────── 작업 실행 ─────────
 
 async def _pipeline(conn: sqlite3.Connection, job: sqlite3.Row, http: httpx.AsyncClient) -> None:
+    deadline = time.monotonic() + JOB_TIMEOUT_SECONDS - 5  # Gemini 다시 시도는 작업 제한 시간 안에서만
     region = get_region(conn, job["region_id"])
     set_stage(conn, job["id"], "news_search")
     docs = await collect_documents(conn, http, region["display_name"], job["disaster_type"])
     set_stage(conn, job["id"], "extraction")
-    changes = await asyncio.to_thread(extract_changes, docs) if docs else []
+    changes = await asyncio.to_thread(extract_changes, docs, deadline) if docs else []
     set_stage(conn, job["id"], "timeline")
     save_changes(conn, region["id"], job["disaster_type"], changes)
     set_stage(conn, job["id"], "scenario")

@@ -93,3 +93,48 @@ def test_keyword_fallback_without_key(monkeypatch):
     assert extractor.extract_batch(ARTICLES) == [
         {"type": "flood", "title": "부산 폭우로 도로 침수", "date": None, "article_ids": [0]}
     ]
+
+
+def busy(status=429, **headers):
+    return httpx.Response(status, json={"error": {"details": [{"retryDelay": "7s"}]}}, headers=headers,
+                          request=httpx.Request("POST", "https://x"))
+
+
+@pytest.fixture
+def scripted(monkeypatch):
+    """Gemini 응답을 순서대로 돌려주고, 기다린 초를 기록 (실제로 자지 않음)"""
+    monkeypatch.setenv("GEMINI_MODELS", "m1,m2")
+    replies, slept, clock = [], [], [1000.0]
+    monkeypatch.setattr(extractor.httpx, "post", lambda url, headers, json, timeout: replies.pop(0))
+    monkeypatch.setattr(extractor.time, "sleep", lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s)))
+    monkeypatch.setattr(extractor.time, "monotonic", lambda: clock[0])
+    return replies, slept, clock
+
+
+def test_all_models_busy_waits_retry_after_then_succeeds(scripted):
+    replies, slept, clock = scripted
+    replies += [busy(429, **{"Retry-After": "3"}), busy(503), gemini_reply({"ok": 1})]
+    assert extractor.call_gemini("t", {}, "k", deadline=clock[0] + 240) == {"ok": 1}
+    assert slept == [7]  # 두 모델 중 더 긴 대기(본문 retryDelay 7초)
+
+
+def test_no_deadline_means_no_retry(scripted):
+    replies, slept, _ = scripted
+    replies += [busy(), busy(), gemini_reply({"ok": 1})]
+    with pytest.raises(extractor.GeminiError):
+        extractor.call_gemini("t", {}, "k")
+    assert slept == []
+
+
+def test_gives_up_when_job_time_is_almost_over(scripted):
+    replies, slept, clock = scripted
+    replies += [busy(), busy()]
+    with pytest.raises(extractor.GeminiError, match="시간이 없음"):
+        extractor.call_gemini("t", {}, "k", deadline=clock[0] + 15)
+    assert slept == []
+
+
+def test_retry_after_reads_header_or_body():
+    assert extractor.retry_after(busy(429, **{"Retry-After": "12"})) == 12
+    assert extractor.retry_after(busy(503)) == 7
+    assert extractor.retry_after(httpx.Response(503, text="x", request=httpx.Request("POST", "https://x"))) is None

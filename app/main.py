@@ -46,6 +46,7 @@ app.add_middleware(
     allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:8000").split(","),
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],  # 다른 주소의 프론트도 429 때 남은 시간을 읽게
 )
 
 
@@ -426,7 +427,8 @@ class RegionAnalyzeIn(BaseModel):
     force_refresh: bool = False
 
 
-def check_rate_limit(request: Request) -> None:
+def check_rate_limit(request: Request) -> tuple[str, float]:
+    """같은 IP의 분석 요청 수 제한. 넘으면 429 + Retry-After(초). 통과하면 (IP, 요청 시각)"""
     # shortcut: 서버 메모리 기준이라 재시작하면 초기화됨, 서버를 여러 대로 늘리면 DB·Redis로 옮김
     forwarded = request.headers.get("x-forwarded-for", "")  # Render는 프록시 뒤라 실제 IP가 이 헤더에 옴
     client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "?")
@@ -434,8 +436,27 @@ def check_rate_limit(request: Request) -> None:
     t = datetime.now().timestamp()
     recent = [s for s in _recent_requests.get(client, []) if t - s < seconds]
     if len(recent) >= count:
-        raise HTTPException(429, f"분석 요청이 너무 많습니다. {seconds // 60}분 뒤 다시 시도해 주세요.")
+        wait = max(1, math.ceil(seconds - (t - min(recent))))
+        raise HTTPException(429, f"분석 요청이 너무 많습니다. {math.ceil(wait / 60)}분 뒤 다시 시도해 주세요.",
+                            headers={"Retry-After": str(wait)})
     _recent_requests[client] = [*recent, t]
+    return client, t
+
+
+def refund_rate_limit(client: str, stamp: float) -> None:
+    """서버 쪽 문제(Gemini·검색 장애, 시간 초과, 재시작)로 실패한 요청은 횟수에서 뺌"""
+    _recent_requests[client] = [s for s in _recent_requests.get(client, []) if s != stamp]
+
+
+async def run_analysis(job_id: str, path: str, http: httpx.AsyncClient, client: str, stamp: float) -> None:
+    await regions.run_job(job_id, path, http)
+    conn = db.connect(path)
+    try:
+        status = conn.execute("SELECT status FROM analysis_jobs WHERE id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
+    if status and status[0] == "failed":  # 잘못된 요청은 작업을 만들기 전에 400으로 막으므로, 실패는 모두 서버 쪽 원인
+        refund_rate_limit(client, stamp)
 
 
 @app.post("/api/regions/analyze", status_code=202)
@@ -470,10 +491,10 @@ def analyze_region(
         raise HTTPException(503, "AI 분석(GEMINI_API_KEY)이 설정되지 않아 새 지역을 분석할 수 없습니다.")
     if regions.active_job_count(conn) >= regions.MAX_ACTIVE_JOBS:
         raise HTTPException(429, "지금 분석 중인 지역이 많습니다. 잠시 후 다시 시도해 주세요.")
-    check_rate_limit(request)
+    client, stamp = check_rate_limit(request)
 
     job_id = regions.create_job(conn, region_id, body.disaster_type)
-    background.add_task(regions.run_job, job_id, db_path(), http)
+    background.add_task(run_analysis, job_id, db_path(), http, client, stamp)
     return {"job_id": job_id, "status": "queued", "region_id": region_id, "cached": False}
 
 

@@ -11,6 +11,7 @@ article_ids는 넘겨받은 articles 안의 순번(0부터). 형식 검증은 ma
 import json
 import logging
 import os
+import time
 
 import httpx
 
@@ -126,8 +127,33 @@ def _call_gemini(articles, key: str) -> list[dict]:
     return reply["disasters"]
 
 
-def call_gemini(text: str, schema: dict, key: str) -> dict:
-    """JSON 형식(schema)으로 답을 받음. 모든 모델 실패·형식 오류는 GeminiError"""
+RETRY_WAITS = (5, 15, 30)  # 모든 모델이 붐빌 때 기다릴 초 (서버가 Retry-After를 주면 그 값, 최대 MAX_WAIT)
+MAX_WAIT = 30
+MIN_CALL_SECONDS = 10  # 남은 시간이 이보다 짧으면 다시 시도하지 않음
+
+
+def retry_after(res: httpx.Response) -> float | None:
+    """기다릴 초: Retry-After 헤더(초) 또는 Gemini 오류 본문의 retryDelay("17s")"""
+    header = res.headers.get("retry-after", "")
+    if header.strip().isdigit():
+        return float(header)
+    try:
+        details = res.json().get("error", {}).get("details", [])
+    except ValueError:
+        return None
+    for d in details:
+        delay = str(d.get("retryDelay", ""))
+        if delay.endswith("s"):
+            try:
+                return float(delay[:-1])
+            except ValueError:
+                pass
+    return None
+
+
+def call_gemini(text: str, schema: dict, key: str, deadline: float | None = None) -> dict:
+    """JSON 형식(schema)으로 답을 받음. 모든 모델 실패·형식 오류는 GeminiError
+    deadline(time.monotonic 기준)을 주면 모든 모델이 붐빌 때(429·503·시간 초과) 기다렸다 다시 시도함. 없으면 한 번만"""
     body = {
         "contents": [{"role": "user", "parts": [{"text": text}]}],
         "generationConfig": {
@@ -137,17 +163,33 @@ def call_gemini(text: str, schema: dict, key: str) -> dict:
         },
     }
     models = [m.strip() for m in os.getenv("GEMINI_MODELS", DEFAULT_MODELS).split(",") if m.strip()]
-    for model in models:
-        try:
-            res = httpx.post(API_URL.format(model=model), headers={"x-goog-api-key": key}, json=body, timeout=TIMEOUT_SECONDS)
-        except httpx.TimeoutException:
-            log.warning("Gemini %s 시간 초과, 다음 모델 시도", model)
-            continue
-        if res.status_code not in FALLBACK_STATUSES:
+    for attempt in range(len(RETRY_WAITS) + 1):
+        res, waits = None, []
+        for model in models:
+            left = deadline - time.monotonic() if deadline else TIMEOUT_SECONDS
+            if left < MIN_CALL_SECONDS:
+                break
+            try:
+                res = httpx.post(API_URL.format(model=model), headers={"x-goog-api-key": key}, json=body,
+                                 timeout=min(TIMEOUT_SECONDS, left))
+            except httpx.TimeoutException:
+                log.warning("Gemini %s 시간 초과, 다음 모델 시도", model)
+                res = None
+                continue
+            if res.status_code not in FALLBACK_STATUSES:
+                break
+            waits.append(retry_after(res))
+            log.warning("Gemini %s 응답 %s, 다음 모델 시도", model, res.status_code)
+            res = None
+        if res is not None:
             break
-        log.warning("Gemini %s 응답 %s, 다음 모델 시도", model, res.status_code)
-    else:
-        raise GeminiError("모든 Gemini 모델이 응답하지 않습니다.")
+        if deadline is None or attempt == len(RETRY_WAITS):
+            raise GeminiError("모든 Gemini 모델이 응답하지 않습니다.")
+        wait = min(max([w for w in waits if w] or [RETRY_WAITS[attempt]]), MAX_WAIT)
+        if deadline - time.monotonic() < wait + MIN_CALL_SECONDS:
+            raise GeminiError("모든 Gemini 모델이 응답하지 않습니다. (다시 시도할 시간이 없음)")
+        log.warning("모든 Gemini 모델이 붐빔, %s초 뒤 다시 시도 (%s번째)", wait, attempt + 1)
+        time.sleep(wait)
     if res.status_code != 200:
         raise GeminiError(f"Gemini({model}) 응답 {res.status_code}: {res.text[:200]}")
     try:
