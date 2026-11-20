@@ -343,3 +343,44 @@ def test_nearby_cards_within_radius(client, monkeypatch):
     res = client.get("/api/disasters/nearby", params={"lat": 37.50, "lon": 127.03, "radius_km": 10}).json()
     assert [i["title"] for i in res["items"]] == ["서초 침수", "강남 침수"]  # 최신순, 부산·좌표 없는 카드 제외
     assert res["items"][1]["distance_km"] == 0.9 and res["items"][0]["map_effect_type"] == "flood"
+
+
+def test_disaster_events_carry_map_effect_like_cards(client, fake):
+    fake["changes"] = full_changes() + [
+        change(source_ids=[0], change_type="disaster_event", disaster_type="heavysnow", facility_name=None, status="occurred",
+               occurred_at="2024-11-27", description="폭설", metrics={"rain_mm": 300}, evidence_quote="300가구 침수"),
+    ]
+    _, body = analyze(client)
+    changes = client.get(f"/api/analysis/{body['job_id']}").json()["result"]["changes"]
+    flood = next(c for c in changes if c["change_type"] == "disaster_event" and c["disaster_type"] == "flood")
+    assert flood["map_effect"]["type"] == "flood" and flood["map_effect"]["params"]["rain"] == 116
+    assert flood["map_effect"]["sources"]["rain"] == "article"
+    assert flood["map_effect"]["position"] == {"longitude": 127.03, "latitude": 37.5}  # 항목 좌표가 없으면 지역 중심
+    snow = next(c for c in changes if c["disaster_type"] == "heavysnow")
+    assert snow["viz_params"] == {"rainfall_mm": 300}  # 이름만 카드 형식으로 바꿈
+    assert snow["map_effect"]["type"] == "snow" and snow["map_effect"]["params"] == {}  # 적설 수치가 없으면 눈 효과 값도 없음
+    pump = next(c for c in changes if c["change_type"] == "drainage_pump")
+    assert pump["map_effect"] is None  # 시설 공사는 재현 대상 아님
+
+
+def test_replayed_event_becomes_a_card_once(client, fake):
+    fake["changes"] = full_changes()
+    _, body = analyze(client)
+    changes = client.get(f"/api/analysis/{body['job_id']}").json()["result"]["changes"]
+    flood = next(c for c in changes if c["change_type"] == "disaster_event")
+    pump = next(c for c in changes if c["change_type"] == "drainage_pump")
+
+    first = client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 37.51, "longitude": 127.05}).json()
+    again = client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 37.51, "longitude": 127.05}).json()
+    assert first["created"] and not again["created"] and first["disaster_id"] == again["disaster_id"]
+    assert client.post(f"/api/regions/changes/{pump['id']}/card").status_code == 404  # 시설 공사는 카드가 아님
+    assert client.post("/api/regions/changes/9999/card").status_code == 404
+    assert client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 10, "longitude": 127}).status_code == 422
+
+    card = client.get(f"/api/disasters/{first['disaster_id']}").json()
+    assert card["type"] == "flood" and card["date"] == "2022-08-08" and card["location"] == "대한민국 서울특별시 강남구"
+    assert (card["lat"], card["lon"]) == (37.51, 127.05)
+    assert card["viz_params"] == {"rain_rate_mm_h": 116, "flooded_buildings": 300}  # 기사 수치만
+    assert [s["url"] for s in card["sources"]] == ["https://news.example.com/a1"]
+    listed = client.get("/api/disasters").json()["items"]
+    assert any(i["id"] == first["disaster_id"] for i in listed)

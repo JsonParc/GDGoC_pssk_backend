@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from . import db, extract, kakao, region_extract as rx
+from . import db, extract, kakao, map_effect, region_extract as rx
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +231,22 @@ def save_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str, c
                          [(cur.lastrowid, doc_id, note) for doc_id, note in c["sources"].items()])
 
 
+# 이력 수치 이름 -> 카드 viz_params 이름 (같은 이름은 그대로). map_effect.build가 카드와 똑같이 지도 효과 값을 만듦
+VIZ_NAME = {"rain_mm": "rainfall_mm"}
+
+
+def with_map_effect(c: dict, region: dict | None) -> dict:
+    """재난 발생 항목만 지도 재현 값. 위치는 항목 좌표, 없으면 지역 중심 (프론트는 클릭한 지점에 재현)"""
+    if c["change_type"] != "disaster_event":
+        return {**c, "viz_params": {}, "map_effect": None}
+    viz = {VIZ_NAME.get(k, k): v for k, v in c["metrics"].items()}
+    at = c["location"] or ({"latitude": region["center_lat"], "longitude": region["center_lon"]} if region else {})
+    card = {"type": c["disaster_type"], "lat": at.get("latitude"), "lon": at.get("longitude"), "viz_params": viz}
+    return {**c, "viz_params": viz, "map_effect": map_effect.build(card)}
+
+
 def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -> list[dict]:
+    region = get_region(conn, region_id)
     rows = conn.execute("SELECT * FROM region_changes WHERE region_id = ? AND scope = ?",
                         (region_id, disaster_type)).fetchall()
     changes = []
@@ -247,8 +262,41 @@ def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -
              "metrics": json.loads(r["observed_metrics_json"]), "confidence": r["confidence"],
              "evidence_status": r["evidence_status"], "conflicts": json.loads(r["conflicts_json"]),
              "sources": [dict(s) for s in sources]}
-        changes.append({**c, "date": rx.timeline_date(c)})
+        changes.append(with_map_effect({**c, "date": rx.timeline_date(c)}, region))
     return sorted(changes, key=lambda c: (c["date"] is None, c["date"] or ""))
+
+
+TITLE_CHARS = 60
+
+
+def change_to_card(conn: sqlite3.Connection, change_id: int, at: dict | None = None) -> tuple[int, bool] | None:
+    """이력의 재난 항목 하나를 재난 카드(disasters)로 저장해 최근 탭에 보이게 함. (카드 id, 새로 만들었는지)
+    viz_params에는 기사에서 확인한 수치만 넣음(가정값은 저장하지 않음). 같은 항목은 한 번만 만듦"""
+    row = conn.execute("SELECT * FROM region_changes WHERE id = ? AND change_type = 'disaster_event'", (change_id,)).fetchone()
+    if row is None:
+        return None
+    region = get_region(conn, row["region_id"])
+    short = search_name(region["display_name"])
+    title = row["description"] if short in row["description"] else f"{short} · {row['description']}"
+    title = title if len(title) <= TITLE_CHARS else title[:TITLE_CHARS - 1] + "…"
+    existing = conn.execute("SELECT id FROM disasters WHERE type = ? AND title = ? AND summary = ?",
+                            (row["disaster_type"], title, row["description"])).fetchone()
+    if existing:
+        return existing[0], False
+    point = at or ({"latitude": row["location_lat"], "longitude": row["location_lon"]} if row["location_lat"] is not None
+                   else {"latitude": region["center_lat"], "longitude": region["center_lon"]})
+    viz = {VIZ_NAME.get(k, k): v for k, v in json.loads(row["observed_metrics_json"]).items()}
+    cur = conn.execute(
+        "INSERT INTO disasters (type, title, summary, location, lat, lon, date, scale, viz_params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (row["disaster_type"], title, row["description"], f"대한민국 {region['display_name']}", point["latitude"], point["longitude"],
+         row["occurred_at"] or row["started_at"], None, json.dumps(viz)))
+    sources = conn.execute("SELECT d.url, d.title, d.publisher, d.published_at FROM change_sources s"
+                           " JOIN source_documents d ON d.id = s.source_document_id WHERE s.change_id = ?", (change_id,)).fetchall()
+    # 이미 크롤러로 받은 기사 주소면 그 카드에 그대로 둠 (articles.url은 하나뿐)
+    conn.executemany("INSERT OR IGNORE INTO articles (url, title, source, published_at, disaster_id) VALUES (?, ?, ?, ?, ?)",
+                     [(s["url"], s["title"], s["publisher"], s["published_at"], cur.lastrowid) for s in sources])
+    conn.commit()
+    return cur.lastrowid, True
 
 
 def build_scenario(changes: list[dict], region: dict) -> dict:
