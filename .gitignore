@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 crawler/sent_urls.txt
 crawler/pending_articles.json
+crawler/past_searched.txt
