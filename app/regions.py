@@ -1,6 +1,6 @@
 """지역 변화 분석 (온디맨드): 요청한 지역만 그때 검색·분석하고 결과를 DB에 캐시.
 
-순서: 뉴스 검색(naver) -> 근거 문서 저장(본문 없음) -> Gemini 추출·서버 검증·병합(region_extract)
+순서: 웹 검색(kakao) -> 근거 문서 저장(본문 없음) -> Gemini 추출·서버 검증·병합(region_extract)
      -> 타임라인 저장 -> 홍수 전·후 시나리오 -> 캐시
 작업(job)은 HTTP 응답 뒤 백그라운드에서 돌고 analysis_jobs에 단계·진행률을 남김.
 서버가 재시작되면 진행 중이던 작업은 failed(다시 요청 안내)로 바꿈.
@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from . import db, extract, naver, region_extract as rx
+from . import db, extract, kakao, region_extract as rx
 
 log = logging.getLogger(__name__)
 
@@ -28,12 +28,18 @@ REFRESH_COOLDOWN_MINUTES = 10  # 새로고침(force_refresh)도 이 시간 안�
 JOB_TIMEOUT_SECONDS = 240
 MAX_RUNNING_JOBS = 2  # 동시에 도는 분석 수
 MAX_ACTIVE_JOBS = 6  # 대기 포함 최대 작업 수 (넘으면 429)
-PER_QUERY = 10  # 검색어마다 받을 뉴스 수
-FLOOD_QUERIES = ("침수 피해", "배수펌프장", "빗물펌프장 증설", "차수벽 설치", "하천 정비 준공", "저류조 준공", "하수관로 정비")
+PER_QUERY = 10  # 검색어마다 받을 결과 수
+# 분석 범위(scope)별 검색어. all: 클릭한 지점의 모든 재난 이력, flood: 홍수 + 배수시설만
+QUERIES = {
+    "all": ("침수 피해", "산불", "태풍 피해", "폭설 피해", "지진", "폭염 피해", "산사태", "강풍 피해", "가뭄",
+            "배수펌프장 준공", "차수벽 설치", "하천 정비 준공"),
+    "flood": ("침수 피해", "배수펌프장", "빗물펌프장 증설", "차수벽 설치", "하천 정비 준공", "저류조 준공", "하수관로 정비"),
+}
 PROGRESS = {"queued": 0, "news_search": 10, "extraction": 40, "timeline": 75, "scenario": 90, "done": 100}
 # 전·후 비교의 시연용 가정값 (실제 지역의 성능이 아님). 프론트 flood 기본값과 같음
 ASSUMED = {"rain": 80, "hours": 12, "drain_before": 40, "drain_after": 60}
-NOTICE = "네이버 뉴스 검색 결과(제목·요약)만 분석합니다. 오래된 기사나 검색되지 않는 기사는 빠질 수 있습니다."
+NOTICE = ("카카오(다음) 웹 검색 결과의 제목·요약만 분석합니다. 기사가 없던 재난, 오래된 기사, 검색되지 않는 글은 빠질 수 있고 "
+          "블로그 등 뉴스가 아닌 글이 섞일 수 있습니다. 위치는 그 지점이 속한 지역(구·동) 단위입니다.")
 EMPTY = "확인된 자료 없음"
 
 _slots = asyncio.Semaphore(MAX_RUNNING_JOBS)
@@ -145,7 +151,7 @@ def store_documents(conn: sqlite3.Connection, items: list[dict]) -> list[dict]:
         if row is None:
             cur = conn.execute(
                 "INSERT INTO source_documents (normalized_url, url, title, publisher, published_at, short_summary,"
-                " retrieval_time, source_kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'naver_news')",
+                " retrieval_time, source_kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'kakao_web')",
                 (norm, item["url"], item["title"], item["publisher"], item["published_at"], item["summary"][:500], now()),
             )
             if fts:
@@ -174,11 +180,11 @@ def search_documents(conn: sqlite3.Connection, term: str, limit: int = rx.MAX_DO
     return [doc_dict(r) for r in conn.execute(sql, args).fetchall()]
 
 
-async def collect_documents(conn: sqlite3.Connection, http: httpx.AsyncClient, name: str) -> list[dict]:
+async def collect_documents(conn: sqlite3.Connection, http: httpx.AsyncClient, name: str, scope: str) -> list[dict]:
     stem = name_stem(name)
     found = []
-    for q in FLOOD_QUERIES:
-        found += await naver.search_news(http, f"{region_key(name)} {q}", PER_QUERY)
+    for q in QUERIES[scope]:
+        found += await kakao.search_news(http, f"{region_key(name)} {q}", PER_QUERY)
     relevant = [i for i in found if stem in i["title"] + i["summary"]]
     docs = {d["id"]: d for d in store_documents(conn, relevant)}
     for d in search_documents(conn, stem):  # 예전에 모은 같은 지역 근거도 함께 (최신 기사만으로 과거를 덮어쓰지 않게)
@@ -200,13 +206,13 @@ def extract_changes(docs: list[dict]) -> list[dict]:
 
 def save_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str, changes: list[dict]) -> None:
     """이번 분석 결과로 교체 (근거 문서는 지우지 않으므로 다음 분석 때 다시 쓰임)"""
-    conn.execute("DELETE FROM region_changes WHERE region_id = ? AND disaster_type = ?", (region_id, disaster_type))
+    conn.execute("DELETE FROM region_changes WHERE region_id = ? AND scope = ?", (region_id, disaster_type))
     for c in changes:
         cur = conn.execute(
-            "INSERT INTO region_changes (region_id, disaster_type, change_type, facility_name, description,"
+            "INSERT INTO region_changes (region_id, scope, disaster_type, change_type, facility_name, description,"
             " location_lat, location_lon, occurred_at, started_at, completed_at, status, observed_metrics_json,"
-            " confidence, evidence_status, conflicts_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (region_id, disaster_type, c["change_type"], c["facility_name"], c["description"], c["lat"], c["lon"],
+            " confidence, evidence_status, conflicts_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (region_id, disaster_type, c["disaster_type"], c["change_type"], c["facility_name"], c["description"], c["lat"], c["lon"],
              c["occurred_at"], c["started_at"], c["completed_at"], c["status"], json.dumps(c["metrics"]),
              c["confidence"], c["evidence_status"], json.dumps(c["conflicts"])),
         )
@@ -215,7 +221,7 @@ def save_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str, c
 
 
 def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -> list[dict]:
-    rows = conn.execute("SELECT * FROM region_changes WHERE region_id = ? AND disaster_type = ?",
+    rows = conn.execute("SELECT * FROM region_changes WHERE region_id = ? AND scope = ?",
                         (region_id, disaster_type)).fetchall()
     changes = []
     for r in rows:
@@ -223,7 +229,7 @@ def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -
             "SELECT d.id, d.title, d.url, d.publisher, d.published_at, s.evidence_note FROM change_sources s"
             " JOIN source_documents d ON d.id = s.source_document_id WHERE s.change_id = ? ORDER BY d.published_at",
             (r["id"],)).fetchall()
-        c = {"id": r["id"], "change_type": r["change_type"], "facility_name": r["facility_name"],
+        c = {"id": r["id"], "change_type": r["change_type"], "disaster_type": r["disaster_type"], "facility_name": r["facility_name"],
              "description": r["description"], "status": r["status"], "occurred_at": r["occurred_at"],
              "started_at": r["started_at"], "completed_at": r["completed_at"],
              "location": {"latitude": r["location_lat"], "longitude": r["location_lon"]} if r["location_lat"] is not None else None,
@@ -236,7 +242,7 @@ def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -
 
 def build_scenario(changes: list[dict], region: dict) -> dict:
     """같은 비·시간·위치에서 배수 능력(drain)만 바꾼 홍수 전·후. 값마다 article / derived / assumed 표시"""
-    floods = [c for c in changes if c["change_type"] == "flood_damage" and c["evidence_status"] == "verified"]
+    floods = [c for c in changes if c["change_type"] == "disaster_event" and c["disaster_type"] == "flood" and c["evidence_status"] == "verified"]
     rain = hours = None
     evidence = {}
     for c in floods:
@@ -298,7 +304,7 @@ def analysis_result(conn: sqlite3.Connection, region_id: int, disaster_type: str
 async def _pipeline(conn: sqlite3.Connection, job: sqlite3.Row, http: httpx.AsyncClient) -> None:
     region = get_region(conn, job["region_id"])
     set_stage(conn, job["id"], "news_search")
-    docs = await collect_documents(conn, http, region["display_name"])
+    docs = await collect_documents(conn, http, region["display_name"], job["disaster_type"])
     set_stage(conn, job["id"], "extraction")
     changes = await asyncio.to_thread(extract_changes, docs) if docs else []
     set_stage(conn, job["id"], "timeline")
@@ -322,7 +328,7 @@ async def run_job(job_id: str, db_path: str, http: httpx.AsyncClient) -> None:
         job = conn.execute("SELECT * FROM analysis_jobs WHERE id = ?", (job_id,)).fetchone()
         async with _slots:
             await asyncio.wait_for(_pipeline(conn, job, http), JOB_TIMEOUT_SECONDS)
-    except naver.NewsSearchError as e:
+    except kakao.NewsSearchError as e:
         fail_job(conn, job_id, e.message)
     except extract.GeminiError as e:
         fail_job(conn, job_id, f"AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요. ({e})")

@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import secrets
 import sqlite3
@@ -14,7 +15,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Pa
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
-from . import db, extract as extractor, frontend, guides, kma, map_effect, naver, regions
+from . import db, extract as extractor, frontend, guides, kma, kakao, map_effect, regions
 
 load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
@@ -215,6 +216,37 @@ def list_disasters(
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
+EARTH_RADIUS_KM = 6371
+
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+@app.get("/api/disasters/nearby")
+def nearby_disasters(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    radius_km: float = Query(20, gt=0, le=200),
+    limit: int = Query(50, ge=1, le=200),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """지도에서 클릭한 지점 근처의 재난 카드 (이미 DB에 있는 것, 바로 응답). 카드 좌표는 기사 속 지역의 대략적인 중심"""
+    dlat = radius_km / 111
+    dlon = radius_km / (111 * max(math.cos(math.radians(lat)), 0.01))
+    rows = conn.execute("SELECT * FROM disasters WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+                        (lat - dlat, lat + dlat, lon - dlon, lon + dlon)).fetchall()
+    items = []
+    for r in rows:
+        d = distance_km(lat, lon, r["lat"], r["lon"])
+        if d <= radius_km:
+            items.append({**with_effect_flag(db.row_to_disaster(r)), "distance_km": round(d, 1)})
+    items.sort(key=lambda c: c["date"] or "", reverse=True)
+    return {"items": items[:limit], "total": len(items), "radius_km": radius_km}
+
+
 @app.get("/api/disasters/{disaster_id}")
 async def get_disaster(
     disaster_id: int,
@@ -390,7 +422,7 @@ class RegionAnalyzeIn(BaseModel):
     latitude: float
     longitude: float
     radius_km: float = 5
-    disaster_type: Literal["flood"] = "flood"  # MVP는 홍수만
+    disaster_type: Literal["all", "flood"] = "all"  # all: 모든 재난 이력, flood: 홍수 + 배수시설만
     force_refresh: bool = False
 
 
@@ -414,7 +446,7 @@ def analyze_region(
     conn: sqlite3.Connection = Depends(get_db),
     http: httpx.AsyncClient = Depends(get_http),
 ):
-    """선택한 지역의 과거·현재 뉴스를 그때 검색·분석. 캐시가 있으면 바로 결과, 없으면 job_id (GET /api/analysis/{job_id})"""
+    """지도에서 클릭한 지점(이 속한 지역)의 과거 재난 이력을 그때 검색·분석. 캐시가 있으면 바로 결과, 없으면 job_id (GET /api/analysis/{job_id})"""
     if not (KOREA_LAT[0] <= body.latitude <= KOREA_LAT[1] and KOREA_LON[0] <= body.longitude <= KOREA_LON[1]):
         raise HTTPException(400, "대한민국 안의 좌표가 아닙니다. 지도에서 위치를 다시 선택해 주세요. (확인 필요)")
     if not 0.5 <= body.radius_km <= 30:
@@ -432,7 +464,7 @@ def analyze_region(
     if running:  # 같은 지역 분석이 이미 진행 중이면 그 작업을 알려 줌 (중복 요청 합치기)
         return {"job_id": running["id"], "status": running["status"], "region_id": region_id, "cached": False}
 
-    if not naver.configured():
+    if not kakao.configured():
         raise HTTPException(503, "뉴스 검색이 설정되지 않아 새 지역을 분석할 수 없습니다.")
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(503, "AI 분석(GEMINI_API_KEY)이 설정되지 않아 새 지역을 분석할 수 없습니다.")
@@ -465,7 +497,7 @@ def _region_or_404(conn: sqlite3.Connection, region_id: int) -> dict:
 
 
 @app.get("/api/regions/{region_id}/timeline")
-def get_region_timeline(region_id: int, disaster_type: Literal["flood"] = "flood",
+def get_region_timeline(region_id: int, disaster_type: Literal["all", "flood"] = "all",
                         conn: sqlite3.Connection = Depends(get_db)):
     """날짜순 도시 변화. evidence_status: verified(근거 문구 확인) / inferred(근거 문구 확인 안 됨)"""
     region = _region_or_404(conn, region_id)
@@ -475,7 +507,7 @@ def get_region_timeline(region_id: int, disaster_type: Literal["flood"] = "flood
 
 
 @app.get("/api/regions/{region_id}/scenarios")
-def get_region_scenarios(region_id: int, disaster_type: Literal["flood"] = "flood",
+def get_region_scenarios(region_id: int, disaster_type: Literal["all", "flood"] = "all",
                          conn: sqlite3.Connection = Depends(get_db)):
     """같은 비·시간에서 배수 능력만 바꾼 전·후. before/after를 koreaDisaster.set(type, params, position)에 넣음"""
     _region_or_404(conn, region_id)

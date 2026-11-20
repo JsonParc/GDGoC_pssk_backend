@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS source_documents (
 CREATE TABLE IF NOT EXISTS region_changes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     region_id INTEGER NOT NULL REFERENCES regions(id),
-    disaster_type TEXT NOT NULL,
+    scope TEXT NOT NULL,  -- 분석 범위 (all, flood)
+    disaster_type TEXT NOT NULL,  -- 이 변화의 재난 종류
     change_type TEXT NOT NULL,
     facility_name TEXT,
     description TEXT NOT NULL,
