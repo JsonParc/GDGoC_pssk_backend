@@ -11,7 +11,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
 from . import db, extract as extractor, kma
 from .guides import GUIDES
@@ -50,17 +50,17 @@ class ArticleIn(BaseModel):
 
 
 class DisasterIn(BaseModel):
-    """extract()가 돌려주는 값. Gemini 결과는 외부 입력이라 여기서 검증합니다."""
+    """extract_batch()가 돌려주는 재난 하나. Gemini 결과는 외부 입력이라 여기서 검증합니다."""
 
     type: DisasterType
     title: str = Field(min_length=1, max_length=500)
-    summary: str = Field("", max_length=2000)
+    summary: str | None = Field("", max_length=2000)
     location: str | None = Field(None, max_length=200)
     lat: float | None = Field(None, ge=-90, le=90)
     lon: float | None = Field(None, ge=-180, le=180)
     date: str | None = Field(None, max_length=40)
     scale: str | None = Field(None, max_length=200)
-    viz_params: dict = {}
+    viz_params: dict | None = None
 
 
 def get_db():
@@ -79,48 +79,80 @@ def check_ingest_token(x_ingest_token: str | None = Header(None)):
         raise HTTPException(401, "X-Ingest-Token이 올바르지 않습니다.")
 
 
-def save_disaster(conn: sqlite3.Connection, found: dict) -> int:
-    d = DisasterIn.model_validate(found)
+def save_disaster(conn: sqlite3.Connection, d: DisasterIn) -> int:
+    viz = {k: v for k, v in (d.viz_params or {}).items() if v is not None}
     cur = conn.execute(
         "INSERT INTO disasters (type, title, summary, location, lat, lon, date, scale, viz_params)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (d.type, d.title, d.summary, d.location, d.lat, d.lon, d.date, d.scale, json.dumps(d.viz_params)),
+        (d.type, d.title, d.summary or "", d.location, d.lat, d.lon, d.date, d.scale, json.dumps(viz)),
     )
     return cur.lastrowid
 
 
+def store_chunk(conn: sqlite3.Connection, chunk: list[ArticleIn], groups: list[dict]) -> tuple[int, int, int]:
+    """Gemini 결과로 재난을 만들고 기사를 저장. (저장한 기사 수, 만든 재난 수, 실패한 기사 수)"""
+    disaster_of: dict[int, int] = {}
+    rejected: set[int] = set()
+    for group in groups:
+        ids = [
+            i for i in group.get("article_ids") or []
+            if isinstance(i, int) and 0 <= i < len(chunk) and i not in disaster_of and i not in rejected
+        ]
+        if not ids:
+            continue
+        try:
+            disaster = DisasterIn.model_validate(group)
+        except ValidationError as e:
+            # 저장하지 않으므로 다음 전송 때 다시 분석됨
+            log.warning("재난 정보 형식 오류로 기사 %s개 보류: %s", len(ids), e.errors()[:1])
+            rejected.update(ids)
+            continue
+        disaster_id = save_disaster(conn, disaster)
+        disaster_of.update({i: disaster_id for i in ids})
+
+    for i, article in enumerate(chunk):
+        if i not in rejected:
+            conn.execute(
+                "INSERT INTO articles (url, title, source, published_at, disaster_id) VALUES (?, ?, ?, ?, ?)",
+                (str(article.url), article.title, article.source, article.published_at, disaster_of.get(i)),
+            )
+    return len(chunk) - len(rejected), len(set(disaster_of.values())), len(rejected)
+
+
 @app.post("/api/articles", dependencies=[Depends(check_ingest_token)])
 def ingest_articles(articles: list[ArticleIn], conn: sqlite3.Connection = Depends(get_db)):
-    """크롤러가 기사 여러 개를 한 번에 보냅니다. 이미 받은 링크는 다시 분석하지 않습니다."""
+    """크롤러가 기사 여러 개를 한 번에 보냅니다. 이미 받은 링크는 다시 분석하지 않습니다.
+
+    새 기사는 extractor.BATCH_SIZE개씩 묶어 Gemini를 한 번씩 부릅니다.
+    """
     if len(articles) > MAX_BATCH:
         raise HTTPException(413, f"한 번에 최대 {MAX_BATCH}개까지 보낼 수 있습니다.")
 
     seen: set[str] = set()
-    new = created = failed = 0
+    fresh = []
     for article in articles:
         url = str(article.url)
-        if url in seen or conn.execute("SELECT 1 FROM articles WHERE url = ?", (url,)).fetchone():
-            continue
-        seen.add(url)
+        if url not in seen and not conn.execute("SELECT 1 FROM articles WHERE url = ?", (url,)).fetchone():
+            seen.add(url)
+            fresh.append(article)
+
+    stored = created = failed = 0
+    for start in range(0, len(fresh), extractor.BATCH_SIZE):
+        chunk = fresh[start:start + extractor.BATCH_SIZE]
         try:
-            found = extractor.extract(article)
-            disaster_id = save_disaster(conn, found) if found else None
+            groups = extractor.extract_batch(chunk)
         except Exception:
             # 저장하지 않으므로 다음 전송 때 다시 분석됨
-            log.exception("기사 분석 실패: %s", url)
-            failed += 1
+            log.exception("기사 %s개 분석 실패", len(chunk))
+            failed += len(chunk)
             continue
-        conn.execute(
-            "INSERT INTO articles (url, title, source, published_at, disaster_id) VALUES (?, ?, ?, ?, ?)",
-            (url, article.title, article.source, article.published_at, disaster_id),
-        )
-        new += 1
-        created += disaster_id is not None
+        s, c, f = store_chunk(conn, chunk, groups)
+        stored, created, failed = stored + s, created + c, failed + f
     conn.commit()
     return {
         "received": len(articles),
-        "new": new,
-        "skipped": len(articles) - new - failed,
+        "new": stored,
+        "skipped": len(articles) - len(fresh),
         "failed": failed,
         "disasters_created": created,
     }
