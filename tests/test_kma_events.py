@@ -53,10 +53,29 @@ def test_earthquakes_have_epicenter(client):
     assert items[0] == {
         "type": "2", "type_name": "국외지진정보", "overseas": True, "issued_at": "202611190441", "seq": "1348",
         "occurred_at": "20261119041423", "magnitude": 6.1, "lat": -57.75, "lon": -146.75,
-        "location": "남태평양 해령", "intensity": None, "remark": "국외지진정보. 미국지질조사소(USGS) 분석결과임.",
+        "location": "남태평양 해령", "intensity": None, "max_intensity": None,
+        "remark": "국외지진정보. 미국지질조사소(USGS) 분석결과임.", "guide_type": "earthquake", "guide_level": None,
     }
     assert items[1]["location"] == "북한 함경북도 길주 북북서 33km 지역"
     assert items[1]["intensity"] == "최대진도 Ⅰ"
+    assert (items[1]["max_intensity"], items[1]["guide_level"]) == ("Ⅰ", "진도 Ⅰ")
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("최대진도 Ⅲ(경북), Ⅱ(대구)", "Ⅲ"), ("최대진도 ⅩⅠ", "Ⅺ"), ("", None), (None, None),
+])
+def test_max_intensity(text, expected):
+    assert kma.max_intensity(text) == expected
+
+
+@pytest.mark.parametrize("wind, strength", [(16.9, None), (17, 1), (24.9, 1), (25, 2), (33, 3), (44, 4), (54, 5), (None, None)])
+def test_typhoon_strength(wind, strength):
+    assert kma.typhoon_strength(wind) == strength
+
+
+@pytest.mark.parametrize("radius, size", [(299, "소형"), (300, "중형"), (500, "대형"), (800, "초대형"), (None, None)])
+def test_typhoon_size(radius, size):
+    assert kma.typhoon_size(radius) == size
 
 
 def test_earthquakes_filter_domestic_and_cache(client):
@@ -87,8 +106,8 @@ def test_typhoon_track_sorted_with_observed_flag(client):
     assert first == {
         "observed": True, "time_utc": "202506110000", "analyzed_at_utc": "202506110000", "seq": 1,
         "lat": 16.1, "lon": 113.8, "direction": "NE", "speed_kmh": 38.0, "pressure_hpa": 994.0,
-        "max_wind_ms": 18.0, "radius_15ms_km": 260.0, "radius_25ms_km": None,
-        "location": "베트남 다낭 동쪽 약 580 km 부근 해상",
+        "max_wind_ms": 18.0, "radius_15ms_km": 260.0, "radius_25ms_km": None, "strength": 1, "size": "소형",
+        "location": "베트남 다낭 동쪽 약 580 km 부근 해상", "guide_type": "typhoon", "guide_level": "강도 1",
     }
     assert forecast["observed"] is False and forecast["radius_25ms_km"] == 80.0
 

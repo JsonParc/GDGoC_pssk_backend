@@ -67,10 +67,10 @@ def test_warnings_from_current_status(client, kma_api):
     assert items == [
         {"region_id": "L1020300", "region": "태백", "region_parent": "강원도", "type": "D", "type_name": "건조",
          "level": "주의보", "command": "변경", "issued_at": "202611201000", "effective_at": "202611201000",
-         "end_notice": None, "guide_type": "dry"},
+         "end_notice": None, "guide_type": "dry", "guide_level": "주의보"},
         {"region_id": "L1014200", "region": "백령도.대청도", "region_parent": "서해5도", "type": "W", "type_name": "강풍",
          "level": "주의보", "command": "발표", "issued_at": "202611180400", "effective_at": "202611180500",
-         "end_notice": "21일 오전(09시~12시)", "guide_type": "strongwind"},
+         "end_notice": "21일 오전(09시~12시)", "guide_type": "strongwind", "guide_level": "주의보"},
     ]
 
 

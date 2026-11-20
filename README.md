@@ -35,15 +35,15 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | GET | `/api/disasters?type=flood&limit=20&offset=0` | 재난 목록 (`flood` `wildfire` `heatwave` `other`) |
 | GET | `/api/disasters/{id}` | 재난 상세 + 원문 기사 링크 |
 | GET | `/api/guides` | 재난별 행동지침 전체 (호우·태풍·대설·한파·폭염·강풍·풍랑·황사·지진해일·지진·산불·건조·폭풍해일·안개). `needs_writing: true`는 공식 문구가 없어 직접 작성 필요 |
-| GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침과 해당 특보 지역. 특보가 해제되면 빠짐 |
-| GET | `/api/guides/{type}` | 재난 하나의 행동지침 |
+| GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침을 특보 **단계(예비특보·주의보·경보)별로** 묶어서, 해당 특보 지역과 함께 줌. 특보가 해제되면 빠짐 |
+| GET | `/api/guides/{type}?level=경보` | 재난 하나의 행동지침. 공통 `steps` + 단계 `level`(공식 기준 `criteria`, 단계 지침 `steps`). `level`을 비우면 모든 단계. 단계 이름: 특보 `예비특보·주의보·경보`(폭염 `중대경보`), 지진 `진도 Ⅰ`~`진도 Ⅻ`, 태풍 `강도 1`~`강도 5` |
 | (고치기) | `app/guides.py` | 행동지침 문구는 이 파일을 직접 고치고 서버를 다시 켜면 반영됩니다. 고친 뒤 `.venv\Scripts\python -m pytest tests/test_guides.py`로 확인 |
 | GET | `/api/warnings?type=H` | 지금 발효 중인 기상특보 (특보현황 API). H 폭염, R 호우, D 건조, C 한파, S 대설, W 강풍 … `end_notice`는 기상청 해제 예고, `guide_type`은 볼 행동지침 |
 | GET | `/api/forecast?lat=37.34&lon=126.73` | 위치의 **예보** (단기예보, 1시간 간격 약 3일). TMP 기온, PCP 강수량, POP 강수확률, REH 습도 … |
 | GET | `/api/current?lat=37.34&lon=126.73` | 위치의 **지금 실제 날씨** (초단기실황, 매시 관측). T1H 기온, RN1 1시간 강수량, REH 습도, WSD 풍속 … |
-| GET | `/api/earthquakes?overseas=false` | 최근 지진 (진앙 위경도·규모·진도). `overseas` 비우면 국내외 모두 |
+| GET | `/api/earthquakes?overseas=false` | 최근 지진 (진앙 위경도·규모·진도). `max_intensity`와 `guide_level`(예: 진도 Ⅳ)로 볼 행동지침 단계를 알 수 있음 |
 | GET | `/api/typhoons?year=2025` | 연도별 태풍 목록 (`korea_effect`: 상륙·직접영향·간접영향·없음) |
-| GET | `/api/typhoons/{year}/{seq}` | 태풍 경로 (시간별 위경도·중심기압·최대풍속·15/25m/s 반경, `observed` true 분석 / false 예측) |
+| GET | `/api/typhoons/{year}/{seq}` | 태풍 경로 (시간별 위경도·중심기압·최대풍속·15/25m/s 반경, `observed` true 분석 / false 예측). `strength` 강도 1~5(최대풍속), `size` 소형~초대형(15m/s 반경, 기상청 참고 분류), `guide_level` |
 
 기상청 결과는 특보 10분, 예보 30분, 지금 날씨 10분, 지진 5분, 태풍 목록 1시간, 태풍 경로 30분 동안 재사용합니다. 태풍 시각은 UTC입니다(한국 시간 = UTC + 9시간). 기상청이 실패하면(가끔 30초 뒤 504, 연결 끊김) 한 번 다시 부르고, 그래도 안 되면 6시간 안의 이전 결과를 줍니다.
 

@@ -198,6 +198,17 @@ def _number(value: str) -> float | None:
     return None if n <= -999 else n
 
 
+ROMAN = ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ", "Ⅺ", "Ⅻ"]
+
+
+def max_intensity(text: str | None) -> str | None:
+    """'최대진도 Ⅲ(경북), Ⅱ(대구)' -> 'Ⅲ'. 맨 앞 진도가 최대진도."""
+    if not text:
+        return None
+    text = text.replace("ⅩⅡ", "Ⅻ").replace("ⅩⅠ", "Ⅺ")
+    return next((ch for ch in text if ch in ROMAN), None)
+
+
 def parse_earthquakes(text: str) -> list[dict]:
     """eqk_now 응답. 앞 7칸은 공백 구분, 그 뒤 '위치,진도,참고사항,정정사항,='은 쉼표 구분."""
     quakes = []
@@ -219,6 +230,7 @@ def parse_earthquakes(text: str) -> list[dict]:
             "lon": _number(lon),
             "location": location,
             "intensity": intensity or None,
+            "max_intensity": max_intensity(intensity),
             "remark": remark or None,
         })
     return sorted(quakes, key=lambda q: q["occurred_at"], reverse=True)
@@ -237,6 +249,21 @@ async def fetch_earthquakes(client: httpx.AsyncClient) -> list[dict]:
 TYPHOON_LIST_TTL = 60 * 60
 TYPHOON_TRACK_TTL = 30 * 60
 KOREA_EFFECT = {"1": "상륙", "2": "직접영향", "3": "간접영향", "4": "없음"}
+# 기상청 태풍 분류: 강도는 최대풍속(m/s) 하한, 크기는 15m/s 강풍반경(km) 상한 (크기는 기상청이 '참고'로 제공)
+TYPHOON_STRENGTH = [(54, 5), (44, 4), (33, 3), (25, 2), (17, 1)]
+TYPHOON_SIZE = [(300, "소형"), (500, "중형"), (800, "대형")]
+
+
+def typhoon_strength(max_wind_ms: float | None) -> int | None:
+    if max_wind_ms is None:
+        return None
+    return next((s for low, s in TYPHOON_STRENGTH if max_wind_ms >= low), None)
+
+
+def typhoon_size(radius_15ms_km: float | None) -> str | None:
+    if radius_15ms_km is None:
+        return None
+    return next((name for high, name in TYPHOON_SIZE if radius_15ms_km < high), "초대형")
 
 
 def parse_typhoon_list(text: str) -> list[dict]:
@@ -285,6 +312,8 @@ def parse_typhoon_track(text: str) -> list[dict]:
             "max_wind_ms": _number(wind),
             "radius_15ms_km": _number(r15),
             "radius_25ms_km": _number(r25),
+            "strength": typhoon_strength(_number(wind)),
+            "size": typhoon_size(_number(r15)),
             "location": location,
         })
     return sorted(points, key=lambda p: (p["time_utc"], not p["observed"]))

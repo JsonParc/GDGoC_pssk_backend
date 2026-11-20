@@ -199,7 +199,7 @@ async def active_warnings_with_guides(http: httpx.AsyncClient) -> list[dict]:
         warnings = await kma.fetch_warnings(http)
     except kma.KmaError as e:
         raise HTTPException(e.status, e.message) from None
-    return [{**w, "guide_type": guides.GUIDE_TYPE_BY_WARNING.get(w["type"])} for w in warnings]
+    return [{**w, "guide_type": guides.GUIDE_TYPE_BY_WARNING.get(w["type"]), "guide_level": w["level"]} for w in warnings]
 
 
 @app.get("/api/warnings")
@@ -252,6 +252,8 @@ async def list_earthquakes(
         raise HTTPException(e.status, e.message) from None
     if overseas is not None:
         items = [q for q in items if q["overseas"] == overseas]
+    items = [{**q, "guide_type": "earthquake",
+              "guide_level": f"진도 {q['max_intensity']}" if q["max_intensity"] else None} for q in items]
     return {"items": items, "total": len(items)}
 
 
@@ -281,6 +283,8 @@ async def get_typhoon_track(
         raise HTTPException(e.status, e.message) from None
     if not track:
         raise HTTPException(404, "해당 태풍의 경로 자료가 없습니다.")
+    track = [{**p, "guide_type": "typhoon", "guide_level": f"강도 {p['strength']}" if p["strength"] else None}
+             for p in track]
     return {"year": year, "seq": seq, "track": track, "total": len(track)}
 
 
@@ -300,17 +304,30 @@ async def list_active_guides(
     warnings = await active_warnings_with_guides(http)
     if region:
         warnings = [w for w in warnings if region in (w["region"] or "") or region in (w["region_parent"] or "")]
-    grouped: dict[str, list[dict]] = {}
+    grouped: dict[tuple[str, str], list[dict]] = {}
     for w in warnings:
-        if w["guide_type"]:
-            grouped.setdefault(w["guide_type"], []).append(w)
-    items = [{**guides.to_response(guides.GUIDE_BY_TYPE[t]), "warnings": ws} for t, ws in grouped.items()]
+        guide = guides.GUIDE_BY_TYPE.get(w["guide_type"])
+        if guide:
+            level = w["guide_level"] if w["guide_level"] in guide.get("levels", {}) else None
+            grouped.setdefault((w["guide_type"], level), []).append(w)
+    items = [
+        {**guides.to_response(guides.GUIDE_BY_TYPE[t], level), "warnings": ws}
+        for (t, level), ws in grouped.items()
+    ]
     return {"items": items, "total": len(items)}
 
 
 @app.get("/api/guides/{disaster_type}")
-def get_guide(disaster_type: str):
+def get_guide(
+    disaster_type: str,
+    level: str | None = Query(None, max_length=20, description="강도 단계 (예: 주의보, 경보, 진도 Ⅳ, 강도 3). 비우면 모든 단계"),
+):
+    """재난 하나의 행동지침. 공통 steps + 단계별 criteria(공식 기준)·steps."""
     guide = guides.GUIDE_BY_TYPE.get(disaster_type)
     if guide is None:
         raise HTTPException(404, "행동지침이 없는 재난 종류입니다.")
-    return guides.to_response(guide)
+    try:
+        return guides.to_response(guide, level)
+    except KeyError:
+        names = ", ".join(guide.get("levels", {}))
+        raise HTTPException(404, f"없는 단계입니다. 가능한 단계: {names}") from None

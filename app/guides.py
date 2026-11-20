@@ -4,6 +4,10 @@
 - steps가 빈 항목은 공식 문구를 찾지 못한 것으로, 직접 작성해야 한다(needs_writing: true로 나감).
 - warning_code는 기상특보 종류 코드(kma.WARNING_TYPES)이고, 그 특보가 발효 중일 때 이 지침을 보여 준다.
 - type과 warning_code는 겹치면 안 된다(tests/test_guides.py가 확인).
+- levels는 강도 단계별 내용이다. 기상특보는 예비특보·주의보·경보(폭염은 중대경보까지),
+  지진은 진도 Ⅰ~Ⅻ, 태풍은 강도 1~5(최대풍속 기준). 단계마다
+  criteria(기상청 공식 기준·설명)와 steps(그 단계에서 추가로 할 일)가 있다.
+  공통 steps는 모든 단계에 같이 보여 주고, 단계 steps가 비면 그 단계는 직접 작성 필요다.
 - 고칠 때는 따옴표("...")와 쉼표(,)를 지워지지 않게 주의한다. 고친 뒤 테스트로 확인: .venv\Scripts\python -m pytest tests/test_guides.py
 """
 
@@ -20,6 +24,23 @@ GUIDES = [
             "건물 안에 물이 조금이라도 차오를 경우 즉시 높은 곳 혹은 주변 대피장소로 이동합니다.",
             "정전이 발생한 경우 양초를 사용하지 말고 손전등, 휴대폰 등을 사용합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
     },
     {
         "type": "typhoon", "warning_code": "T", "title": "태풍 특보 중 행동요령", "source": f"{KMA}/typhoon.do",
@@ -30,6 +51,58 @@ GUIDES = [
             "공사장 작업이나 크레인 운행 등 야외작업을 중지합니다.",
             "강풍 발생 시 인접한 차로의 차와 안전한 거리를 유지하고, 강한 돌풍은 차를 차선 밖으로 밀어낼 수 있으므로 주의합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "강도 1": {
+                "criteria": [
+                    "최대풍속 17m/s(61km/h, 34kt) 이상 ~ 25m/s(90km/h, 48kt) 미만",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
+                "steps": [],
+            },
+            "강도 2": {
+                "criteria": [
+                    "최대풍속 25m/s(90km/h, 48kt) 이상 ~ 33m/s(119km/h, 64kt) 미만",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
+                "steps": [],
+            },
+            "강도 3": {
+                "criteria": [
+                    "최대풍속 33m/s(119km/h, 64kt) 이상 ~ 44m/s(158km/h, 85kt) 미만",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
+                "steps": [],
+            },
+            "강도 4": {
+                "criteria": [
+                    "최대풍속 44m/s(158km/h, 85kt) 이상 ~ 54m/s(194km/h, 105kt) 미만",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
+                "steps": [],
+            },
+            "강도 5": {
+                "criteria": [
+                    "최대풍속 54m/s(194km/h, 105kt) 이상",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
+                "steps": [],
+            },
+        },
     },
     {
         "type": "heavysnow", "warning_code": "S", "title": "대설 특보 중 행동요령", "source": f"{KMA}/heavy-snow.do",
@@ -39,6 +112,23 @@ GUIDES = [
             "차량이 고립·정체된 경우 되도록 차량에서 대기하고, 부득이 차량을 벗어날 경우 연락처와 열쇠를 꽂아 둔 채로 대피합니다.",
             "노후가옥은 가족이나 이웃과 함께 쌓인눈의 무게로 무너지지 않도록 안전점검과 보강을 하고, 고립이 우려되는 지역은 경찰서, 관공서와 비상연락체계를 유지하도록 합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
     },
     {
         "type": "coldwave", "warning_code": "C", "title": "한파 발생 시 행동요령", "source": f"{KMA}/coldwave.do",
@@ -49,6 +139,31 @@ GUIDES = [
             "외출 시에는 되도록 대중교통을 이용하고, 가족에게 행선지와 시간 계획을 알려둡니다.",
             "수도계량기, 수도관, 보일러 배관 등은 헌 옷 등 보온재로 채우고 외부는 테이프로 밀폐시켜 찬 공기가 들어가지 않도록 합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [
+                    "10월~4월 사이의 기간 중에",
+                    "아침 최저기온이 전날보다 10℃ 이상 하강하여 3℃ 이하이면서 평년값보다 3℃ 이상 낮을 것으로 예상될 때",
+                    "아침 최저기온 -12℃ 이하가 2일 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/coldwave.do",
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [
+                    "10월~4월 사이의 기간 중에",
+                    "아침 최저기온이 전날보다 15℃ 이상 하강하여 3℃ 이하이면서 평년값보다 3℃ 이상 낮을 것으로 예상될 때",
+                    "아침 최저기온 -15℃ 이하가 2일 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/coldwave.do",
+                "steps": [],
+            },
+        },
     },
     {
         "type": "heatwave", "warning_code": "H", "title": "폭염발생 시 행동요령", "source": f"{KMA}/heatwave.do",
@@ -59,6 +174,41 @@ GUIDES = [
             "창문이 닫힌 자동차 안에는 노약자나 어린이를 홀로 남겨두지 않습니다.",
             "현기증, 메스꺼움, 두통, 근육경련 등의 증세가 보이는 경우에는 시원한 곳으로 이동하여 휴식을 취하고 시원한 음료를 천천히 마십니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [
+                    "일 최고 체감온도 33℃ 이상이 2일 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/heatwave.do",
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [
+                    "일 최고 체감온도 35℃ 이상이 2일 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/heatwave.do",
+                "steps": [],
+            },
+            "중대경보": {
+                "criteria": [
+                    "일 최고 체감온도 35℃ 이상이 2일 이상 관측된 지역에서 다음 각 목의 어느 하나에 해당하는 경우",
+                    "일 최고 체감온도 38℃ 이상이 1일 이상 지속될 것으로 예상될 때",
+                    "일 최고기온 39℃ 이상이 1일 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/heatwave.do",
+                "steps": [
+                    "“생존을 위한 3단계 행동수칙” [중단/Stop, 이동/Move, 확인/Check]",
+                    "중단(Stop) : 최대한 지금 즉시 모든 야외활동을 중단하시기 바랍니다.",
+                    "이동(Move) : 냉방시설이 없는 실내는 위험합니다. 무더위쉼터, 그늘 등 시원한 곳으로 즉시 이동하시고, 수분을 보충하며 휴식하시기 바랍니다.",
+                    "확인(Check) : 당신의 가족, 이웃, 차 안에 남겨진 생명을 확인하십시오.",
+                ],
+            },
+        },
     },
     {
         "type": "strongwind", "warning_code": "W", "title": "강풍 발생 시 행동요령", "source": f"{KMA}/strong-wind.do",
@@ -69,6 +219,27 @@ GUIDES = [
             "바닷가는 파도에 휩쓸릴 위험이 있으니 나가지 않습니다.",
             "공사장 작업이나 크레인 운행 등 야외작업을 중지합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [
+                    "육상에서 풍속 14m/s(50.4km/h)이상 또는 순간풍속 20m/s(72km/h)이상, 다만 산지는 풍속 17m/s(61.2km/h)이상 또는 순간풍속 25m/s(90km/h)이상이 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/strong-wind.do",
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [
+                    "육상에서 풍속 21m/s(75.6km/h) 이상 또는 순간풍속 26m/s(93.6km/h) 이상, 다만 산지는 풍속 24m/s(86.4km/h)이상 또는 순간풍속 30m/s(108km/h)이상이 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/strong-wind.do",
+                "steps": [],
+            },
+        },
     },
     {
         "type": "wave", "warning_code": "V", "title": "풍랑특보 시 대비요령", "source": f"{KMA}/wind-wave.do",
@@ -79,6 +250,27 @@ GUIDES = [
             "높은 파도가 발생할 위험이 있는 방파제, 방조제 등에 가지 맙시다.",
             "항해 중 또는 조업 어선은 인근 선박이나 관계기관(어업무선국 등)에 연락하고 대피합시다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [
+                    "해상에서 풍속 50.4km/h(14m/s) 이상이 3시간 이상 지속되거나 유의파고가 3m 이상 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/wind-wave.do",
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [
+                    "해상에서 풍속 75.6km/h(21m/s) 이상이 3시간 이상 지속되거나 유의파고가 5m 이상 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/wind-wave.do",
+                "steps": [],
+            },
+        },
     },
     {
         "type": "yellowdust", "warning_code": "Y", "title": "황사 발생 시 행동요령", "source": f"{KMA}/asiandust.do",
@@ -88,6 +280,25 @@ GUIDES = [
             "노약자, 호흡기 질환자의 경우 실외활동을 금지합니다.",
             "어린이집과 각급학교의 실외활동 금지하고 수업 단축 또는 휴업을 합니다.",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [
+                    "황사로 인해 1시간 평균 미세먼지(PM-10) 농도 800㎍/㎥ 이상이 2시간 이상 지속될 것으로 예상될 때",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/asiandust.do",
+                "steps": [],
+            },
+        },
     },
     {
         "type": "tsunami", "warning_code": "N", "title": "지진해일 대피요령", "source": KMA_QUAKE,
@@ -96,6 +307,23 @@ GUIDES = [
             "만약! 해안가에 있을 때 진동을 느꼈다면? 곧 지진해일이 올 수 있으니 지진해일 긴급 대피장소나 높은 지대로 대피!(높이 3층 이상 건물)",
             "지진해일은 수 시간 동안 반복될 수 있으니 지진해일 특보가 해제될 때까지 재난방송 확인하기!",
         ],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
     },
     {
         "type": "earthquake", "warning_code": None, "title": "지진 대피요령", "source": KMA_QUAKE,
@@ -106,6 +334,92 @@ GUIDES = [
             "문을 열어 출구를 확보! 문이나 창문을 열어 언제든 대피할 수 있도록 출구를 확보. 흔들림이 완전히 멈추면 출구를 통해 밖으로 이동",
             "꼭 계단으로 대피! 밖으로 이동할 때는 엘리베이터를 타지 말고 비상계단을 이용하여 건물 밖으로 대피",
         ],
+        "levels": {
+            "진도 Ⅰ": {
+                "criteria": [
+                    "대부분 사람들은 느낄 수 없으나, 지진계에는 기록된다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅱ": {
+                "criteria": [
+                    "조용한 상태나 건물 위층에 있는 소수의 사람만 느낀다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅲ": {
+                "criteria": [
+                    "실내, 특히 건물 위층에 있는 사람이 현저하게 느끼며, 정지하고 있는 차가 약간 흔들린다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅳ": {
+                "criteria": [
+                    "실내에서 많은 사람이 느끼고, 밤에는 잠에서 깨기도 하며, 그릇과 창문 등이 흔들린다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅴ": {
+                "criteria": [
+                    "거의 모든 사람이 진동을 느끼고, 그릇, 창문 등이 깨지기도 하며, 불안정한 물체는 넘어진다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅵ": {
+                "criteria": [
+                    "모든 사람이 느끼고, 일부 무거운 가구가 움직이며, 벽의 석회가 떨어지기도 한다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅶ": {
+                "criteria": [
+                    "일반 건물에 약간의 피해가 발생하며, 부실한 건물에는 상당한 피해가 발생한다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅷ": {
+                "criteria": [
+                    "일반 건물에 부분적 붕괴 등 상당한 피해가 발생하며, 부실한 건물에는 심각한 피해가 발생한다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅸ": {
+                "criteria": [
+                    "잘 설계된 건물에도 상당한 피해가 발생하며, 일반 건축물에는 붕괴 등 큰 피해가 발생한다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅹ": {
+                "criteria": [
+                    "대부분의 석조 및 골조 건물이 파괴되고, 기차선로가 휘어진다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅺ": {
+                "criteria": [
+                    "남아있는 구조물이 거의 없으며, 다리가 무너지고, 기차선로가 심각하게 휘어진다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+            "진도 Ⅻ": {
+                "criteria": [
+                    "모든 것이 피해를 입고, 지표면이 심각하게 뒤틀리며, 물체가 공중으로 튀어 오른다.",
+                ],
+                "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
+                "steps": [],
+            },
+        },
     },
     {
         # 국민안전24를 출처로 밝힌 인천광역시 페이지 (산림청·국민안전24 원문은 자동 조회 불가)
@@ -119,14 +433,84 @@ GUIDES = [
         ],
     },
     # 기상청에 공식 행동요령 페이지가 없음: 직접 작성 필요
-    {"type": "dry", "warning_code": "D", "title": "건조특보 중 행동요령", "source": None, "steps": []},
-    {"type": "stormsurge", "warning_code": "O", "title": "폭풍해일특보 중 행동요령", "source": None, "steps": []},
-    {"type": "fog", "warning_code": "F", "title": "안개특보 중 행동요령", "source": None, "steps": []},
+    {
+        "type": "dry", "warning_code": "D", "title": "건조특보 중 행동요령", "source": None,
+        "steps": [],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
+    },
+    {
+        "type": "stormsurge", "warning_code": "O", "title": "폭풍해일특보 중 행동요령", "source": None,
+        "steps": [],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
+    },
+    {
+        "type": "fog", "warning_code": "F", "title": "안개특보 중 행동요령", "source": None,
+        "steps": [],
+        "levels": {
+            "예비특보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "주의보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+            "경보": {
+                "criteria": [],
+                "criteria_source": None,
+                "steps": [],
+            },
+        },
+    },
 ]
 
 GUIDE_BY_TYPE = {guide["type"]: guide for guide in GUIDES}
 GUIDE_TYPE_BY_WARNING = {guide["warning_code"]: guide["type"] for guide in GUIDES if guide["warning_code"]}
 
 
-def to_response(guide: dict) -> dict:
-    return {**guide, "needs_writing": not guide["steps"]}
+def _level_view(name: str, level: dict) -> dict:
+    return {"name": name, **level, "needs_writing": not level["steps"]}
+
+
+def to_response(guide: dict, level: str | None = None) -> dict:
+    """level을 주면 그 단계만, 안 주면 모든 단계를 붙임. 없는 단계면 KeyError."""
+    base = {k: v for k, v in guide.items() if k != "levels"}
+    base["needs_writing"] = not guide["steps"]
+    levels = guide.get("levels", {})
+    if level is None:
+        return {**base, "levels": [_level_view(n, lv) for n, lv in levels.items()]}
+    return {**base, "level": _level_view(level, levels[level])}
