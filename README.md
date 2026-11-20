@@ -63,14 +63,24 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 
 ### 크롤러 (`crawler/`)
 
-뉴스 목록 페이지에서 기사를 모아 위 형식으로 한 번에 보냅니다. 서버와 따로 실행합니다.
+기사를 모아 위 형식으로 보냅니다(100개씩). 서버와 따로 실행하고, **하루 한 번 이상** 돌려야 최근 기사를 놓치지 않습니다.
+
+| 수집 방법 | 내용 | 보내는 값 |
+| --- | --- | --- |
+| 목록 페이지 (`LIST_URLS`) | 경향신문·뉴스펭귄·한겨레·Daum 기후 섹션 첫 페이지 | 원문 주소 + 본문 |
+| 뉴스 사이트맵 (`NEWS_SITEMAPS`) | 연합뉴스·KBS·동아일보·매일경제가 공개한 최근 2~3일 기사 중 제목에 재난·기후 단어(`TITLE_KEYWORDS`)가 있는 기사 | 원문 주소 + 본문 |
+| 과거 기사 (구글 뉴스 RSS) | 서버 재난 카드(`GET /api/disasters`)의 위치·유형으로 발생일 이전 5년의 피해·복구공사·방재 기사 검색 | 제목·언론사·날짜 (본문 없음) |
 
 ```
 .venv\Scripts\python -m pip install -r crawler\requirements.txt
-.venv\Scripts\python crawler\crawler.py              # 기본 목록 4곳(경향신문·뉴스펭귄·한겨레·Daum 기후) 수집 후 전송
+.venv\Scripts\python crawler\crawler.py              # 세 가지 모두 수집 후 전송
 .venv\Scripts\python crawler\crawler.py --dry-run    # 보내지 않고 보낼 내용만 확인
+.venv\Scripts\python crawler\crawler.py --past "부산 침수"   # 과거 기사 검색어 직접 지정
+.venv\Scripts\python crawler\crawler.py --no-lists --no-sitemaps --no-past   # 원하는 방법만 끄기
 .venv\Scripts\python crawler\crawler.py <목록 주소>   # 원하는 목록 페이지만 수집
 ```
+
+**robots.txt에서 Gemini의 AI 사용(`Google-Extended`)을 막은 주소는 열지 않습니다.** 지금 경향신문·KBS 기사가 빠지고, 구글 뉴스도 `/rss/`를 막아 두어서 **과거 기사 검색은 실제로는 동작하지 않습니다**(검색 실패로 넘어감).
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -80,6 +90,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 - `published_at`은 `YYYY-MM-DD`(한국 시간 기준 날짜)로 보냅니다.
 - 본문이 없는 기사(이미지만 있는 기사 등)는 보내지 않습니다.
 - 보냈거나 제외한 URL은 `crawler/sent_urls.txt`에 기록해 다음 실행 때 다시 열지 않습니다.
+- 과거 검색은 최근 30일 안의 재난 카드만 대상으로 하고, 검색한 지역은 `crawler/past_searched.txt`에 기록해 다시 검색하지 않습니다(과거 기사로 만들어진 과거 카드가 또 과거 검색을 부르는 연쇄 방지).
 - 전송에 실패한 기사는 `crawler/pending_articles.json`에 두었다가 다음 실행 때 먼저 보냅니다.
 - 언론사를 추가하려면 `crawler.py`의 `SITE_RULES`에 목록 링크·본문 CSS 선택자를 넣습니다. 규칙이 없는 사이트는 자동 판별로 수집합니다.
 
