@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
-from . import db, extract, kakao, region_extract as rx
+from . import db, extract, kakao, map_effect, region_extract as rx
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +231,22 @@ def save_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str, c
                          [(cur.lastrowid, doc_id, note) for doc_id, note in c["sources"].items()])
 
 
+# 이력 수치 이름 -> 카드 viz_params 이름 (같은 이름은 그대로). map_effect.build가 카드와 똑같이 지도 효과 값을 만듦
+VIZ_NAME = {"rain_mm": "rainfall_mm"}
+
+
+def with_map_effect(c: dict, region: dict | None) -> dict:
+    """재난 발생 항목만 지도 재현 값. 위치는 항목 좌표, 없으면 지역 중심 (프론트는 클릭한 지점에 재현)"""
+    if c["change_type"] != "disaster_event":
+        return {**c, "viz_params": {}, "map_effect": None}
+    viz = {VIZ_NAME.get(k, k): v for k, v in c["metrics"].items()}
+    at = c["location"] or ({"latitude": region["center_lat"], "longitude": region["center_lon"]} if region else {})
+    card = {"type": c["disaster_type"], "lat": at.get("latitude"), "lon": at.get("longitude"), "viz_params": viz}
+    return {**c, "viz_params": viz, "map_effect": map_effect.build(card)}
+
+
 def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -> list[dict]:
+    region = get_region(conn, region_id)
     rows = conn.execute("SELECT * FROM region_changes WHERE region_id = ? AND scope = ?",
                         (region_id, disaster_type)).fetchall()
     changes = []
@@ -247,7 +262,7 @@ def load_changes(conn: sqlite3.Connection, region_id: int, disaster_type: str) -
              "metrics": json.loads(r["observed_metrics_json"]), "confidence": r["confidence"],
              "evidence_status": r["evidence_status"], "conflicts": json.loads(r["conflicts_json"]),
              "sources": [dict(s) for s in sources]}
-        changes.append({**c, "date": rx.timeline_date(c)})
+        changes.append(with_map_effect({**c, "date": rx.timeline_date(c)}, region))
     return sorted(changes, key=lambda c: (c["date"] is None, c["date"] or ""))
 
 
