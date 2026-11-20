@@ -24,6 +24,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | `GEMINI_API_KEY` | 없음 | Google AI Studio 키. 없으면 기사 분석을 키워드 규칙으로 대신함 |
 | `GEMINI_MODELS` | `gemini-3.5-flash,gemini-3.5-flash-lite` | 쓸 모델 순서(앞 모델이 붐비면 다음 모델) |
 | `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
+| `FRONTEND_DIR` | 옆 폴더 `../GDGoC_TUK_pssk` | 프론트(뷰어 저장소) 폴더. 있으면 이 서버가 프론트 화면도 같이 보냄(아래 '서버 하나로 운영') |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | 프론트엔드 주소(쉼표로 여러 개) |
 | `DB_PATH` | `data.db` | SQLite 파일 위치 |
 
@@ -60,6 +61,24 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 응답: `{"received": 1, "new": 1, "skipped": 0, "failed": 0, "disasters_created": 1}`
 
 `content`는 분석에만 쓰고 저장하지 않습니다.
+
+### 서버 하나로 운영 (프론트 + API, `app/frontend.py`)
+
+이 서버가 프론트 화면 파일까지 같이 보냅니다. 주소 하나로 화면과 API를 함께 씁니다.
+
+| 주소 | 내용 |
+| --- | --- |
+| `/`, `/korea/vworld.html` … | 프론트 파일 (`FRONTEND_DIR` 폴더) |
+| `/api/...`, `/docs` | 백엔드 API (프론트 파일보다 먼저) |
+
+- 같은 주소라서 프론트는 `fetch('/api/disasters/1')`처럼 부르면 되고, `ALLOWED_ORIGINS`는 필요 없습니다.
+- `.git`, `.env`처럼 점(.)으로 시작하는 파일·폴더는 보내지 않습니다.
+- 내 PC: 백엔드 폴더 옆에 `GDGoC_TUK_pssk`(프론트 저장소)가 있으면 자동으로 씁니다. 서버를 켜고 http://localhost:8001/ 를 엽니다.
+- 배포(Render 웹 서비스 예):
+  - Build: `pip install -r requirements.txt && git clone --depth 1 https://github.com/JsonParc/GDGoC_TUK_pssk.git frontend`
+  - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  - 환경 변수: `.env.example` 값 + `FRONTEND_DIR=frontend`
+  - 프론트를 바꾸면 이 서비스를 다시 배포해야 반영됩니다 (Render의 Manual Deploy 또는 Deploy Hook).
 
 ### 크롤러 (`crawler/`)
 

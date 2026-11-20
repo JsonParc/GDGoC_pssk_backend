@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
-from . import db, extract as extractor, guides, kma, map_effect
+from . import db, extract as extractor, frontend, guides, kma, map_effect
 
 load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
@@ -369,3 +369,10 @@ def get_guide(
     except KeyError:
         names = ", ".join(guide.get("levels", {}))
         raise HTTPException(404, f"없는 단계입니다. 가능한 단계: {names}") from None
+
+
+# 프론트 화면 (반드시 맨 끝: 위의 API 주소가 먼저 잡히고 나머지 주소만 프론트 파일로 감)
+_frontend = frontend.frontend_dir()
+if _frontend:
+    log.warning("프론트 파일을 함께 보냅니다: %s", _frontend)
+    app.mount("/", frontend.static_app(_frontend), name="frontend")
