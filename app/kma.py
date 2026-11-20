@@ -204,3 +204,132 @@ async def fetch_forecast(client: httpx.AsyncClient, lat: float, lon: float) -> d
         return {"nx": nx, "ny": ny, "base": base_date + base_time, "items": items}
 
     return await _cached(("forecast", nx, ny, base_date, base_time), FORECAST_TTL, load)
+
+
+# ---- 지진 (지진/화산 1, eqk_now.php) ----
+
+EARTHQUAKE_TTL = 5 * 60
+EARTHQUAKE_TYPES = {
+    "2": "국외지진정보", "3": "국내지진통보", "5": "지진정보(재통보)", "10": "지진현장경보",
+    "11": "지진조기경보", "12": "국외지진조기경보", "14": "지진속보",
+}
+OVERSEAS_EARTHQUAKE_TYPES = {"2", "12"}
+
+
+def _number(value: str) -> float | None:
+    """기상청 숫자 칸. 빈 값·-999(자료 없음)는 None."""
+    try:
+        n = float(value)
+    except ValueError:
+        return None
+    return None if n <= -999 else n
+
+
+def parse_earthquakes(text: str) -> list[dict]:
+    """eqk_now 응답. 앞 7칸은 공백 구분, 그 뒤 '위치,진도,참고사항,정정사항,='은 쉼표 구분."""
+    quakes = []
+    for line in _data_lines(text):
+        parts = line.split(None, 7)
+        if len(parts) < 8:
+            continue
+        kind, issued_at, seq, occurred_at, magnitude, lat, lon, rest = parts
+        location, intensity, remark = ([f.strip() for f in rest.split(",")] + ["", "", ""])[:3]
+        quakes.append({
+            "type": kind,
+            "type_name": EARTHQUAKE_TYPES.get(kind, kind),
+            "overseas": kind in OVERSEAS_EARTHQUAKE_TYPES,
+            "issued_at": issued_at,
+            "seq": seq,
+            "occurred_at": occurred_at.split(".")[0],  # 년월일시분초
+            "magnitude": _number(magnitude),
+            "lat": _number(lat),
+            "lon": _number(lon),
+            "location": location,
+            "intensity": intensity or None,
+            "remark": remark or None,
+        })
+    return sorted(quakes, key=lambda q: q["occurred_at"], reverse=True)
+
+
+async def fetch_earthquakes(client: httpx.AsyncClient) -> list[dict]:
+    async def load():
+        text = await _get(client, "typ01/url/eqk_now.php", {"tm": "", "disp": "0", "help": "0"})
+        return parse_earthquakes(text)
+
+    return await _cached("earthquakes", EARTHQUAKE_TTL, load)
+
+
+# ---- 태풍 (태풍 1.1 typ_lst.php, 1.2 typ_data.php) ----
+
+TYPHOON_LIST_TTL = 60 * 60
+TYPHOON_TRACK_TTL = 30 * 60
+KOREA_EFFECT = {"1": "상륙", "2": "직접영향", "3": "간접영향", "4": "없음"}
+
+
+def parse_typhoon_list(text: str) -> list[dict]:
+    """typ_lst 응답: 년도 번호 진행여부 한반도영향 시작 종료(UTC) 이름 영문이름 설명"""
+    typhoons = []
+    for line in _data_lines(text):
+        parts = line.split(None, 7)
+        if len(parts) < 7:
+            continue
+        year, seq, now, effect, start, end, name = parts[:7]
+        name_en, _, remark = (parts[7] if len(parts) > 7 else "").partition(" ")
+        typhoons.append({
+            "year": int(year),
+            "seq": int(seq),
+            "name": name,
+            "name_en": name_en or None,
+            "ongoing": now == "1",
+            "korea_effect": KOREA_EFFECT.get(effect, effect),
+            "start_utc": start,
+            "end_utc": end,
+            "remark": remark.strip() or None,
+        })
+    return typhoons
+
+
+def parse_typhoon_track(text: str) -> list[dict]:
+    """typ_data 응답. 앞 18칸은 공백 구분, 그 뒤 '위치 예외방향25,예외반경25,'."""
+    points = []
+    for line in _data_lines(text):
+        parts = line.split(None, 18)
+        if len(parts) < 19:
+            continue
+        ft, _, _, seq, _, analyzed_at, forecast_at, lat, lon, direction, speed, pressure, wind, r15, r25 = parts[:15]
+        location = parts[18].split(",")[0].rsplit(None, 1)[0].strip()  # 끝의 예외방향(ED25) 칸 제거
+        observed = ft == "0"
+        points.append({
+            "observed": observed,  # True 분석(관측), False 예측
+            "time_utc": analyzed_at if observed else forecast_at,
+            "analyzed_at_utc": analyzed_at,
+            "seq": int(seq),
+            "lat": _number(lat),
+            "lon": _number(lon),
+            "direction": direction,
+            "speed_kmh": _number(speed),
+            "pressure_hpa": _number(pressure),
+            "max_wind_ms": _number(wind),
+            "radius_15ms_km": _number(r15),
+            "radius_25ms_km": _number(r25),
+            "location": location,
+        })
+    return sorted(points, key=lambda p: (p["time_utc"], not p["observed"]))
+
+
+async def fetch_typhoons(client: httpx.AsyncClient, year: int) -> list[dict]:
+    async def load():
+        text = await _get(client, "typ01/url/typ_lst.php", {"YY": str(year), "disp": "0", "help": "0"})
+        return parse_typhoon_list(text)
+
+    return await _cached(("typhoons", year), TYPHOON_LIST_TTL, load)
+
+
+async def fetch_typhoon_track(client: httpx.AsyncClient, year: int, seq: int) -> list[dict]:
+    async def load():
+        text = await _get(client, "typ01/url/typ_data.php", {
+            "YY": str(year), "typ": str(seq), "seq": "", "mode": "0", "disp": "0", "help": "0",
+        })
+        return parse_typhoon_track(text)
+
+    return await _cached(("typhoon_track", year, seq), TYPHOON_TRACK_TTL, load)

@@ -37,8 +37,11 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | GET | `/api/guides/{type}` | 재난별 행동요령 |
 | GET | `/api/warnings?type=H` | 지금 발효 중인 기상특보 (H 폭염, R 호우, D 건조, C 한파, S 대설, W 강풍 …) |
 | GET | `/api/forecast?lat=37.34&lon=126.73` | 위치의 단기예보 (TMP 기온, PCP 강수량, POP 강수확률, REH 습도 …) |
+| GET | `/api/earthquakes?overseas=false` | 최근 지진 (진앙 위경도·규모·진도). `overseas` 비우면 국내외 모두 |
+| GET | `/api/typhoons?year=2025` | 연도별 태풍 목록 (`korea_effect`: 상륙·직접영향·간접영향·없음) |
+| GET | `/api/typhoons/{year}/{seq}` | 태풍 경로 (시간별 위경도·중심기압·최대풍속·15/25m/s 반경, `observed` true 분석 / false 예측) |
 
-기상청 결과는 특보 10분, 예보 30분, 특보구역 하루 동안 재사용합니다. 기상청이 실패하면(가끔 30초 뒤 504) 한 번 다시 부르고, 그래도 안 되면 6시간 안의 이전 결과를 줍니다.
+기상청 결과는 특보 10분, 예보 30분, 특보구역 하루, 지진 5분, 태풍 목록 1시간, 태풍 경로 30분 동안 재사용합니다. 태풍 시각은 UTC입니다(한국 시간 = UTC + 9시간). 기상청이 실패하면(가끔 30초 뒤 504) 한 번 다시 부르고, 그래도 안 되면 6시간 안의 이전 결과를 줍니다.
 
 ### 크롤러 → 서버 (`POST /api/articles`)
 

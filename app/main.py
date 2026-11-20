@@ -4,19 +4,20 @@ import os
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from pathlib import Path
+from datetime import datetime
+from pathlib import Path as FilePath
 from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
 from . import db, extract as extractor, kma
 from .guides import GUIDES
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
 log = logging.getLogger(__name__)
 
@@ -215,6 +216,50 @@ async def get_forecast(
         return await kma.fetch_forecast(http, lat, lon)
     except kma.KmaError as e:
         raise HTTPException(e.status, e.message) from None
+
+
+@app.get("/api/earthquakes")
+async def list_earthquakes(
+    overseas: bool | None = Query(None, description="true 국외만, false 국내만, 비우면 모두"),
+    http: httpx.AsyncClient = Depends(get_http),
+):
+    """최근 지진 (기상청). 진앙 위경도·규모·진도."""
+    try:
+        items = await kma.fetch_earthquakes(http)
+    except kma.KmaError as e:
+        raise HTTPException(e.status, e.message) from None
+    if overseas is not None:
+        items = [q for q in items if q["overseas"] == overseas]
+    return {"items": items, "total": len(items)}
+
+
+@app.get("/api/typhoons")
+async def list_typhoons(
+    year: int = Query(default_factory=lambda: datetime.now(kma.KST).year, ge=1951, le=2100),
+    http: httpx.AsyncClient = Depends(get_http),
+):
+    """연도별 태풍 목록 (기상청). korea_effect: 상륙·직접영향·간접영향·없음."""
+    try:
+        items = await kma.fetch_typhoons(http, year)
+    except kma.KmaError as e:
+        raise HTTPException(e.status, e.message) from None
+    return {"year": year, "items": items, "total": len(items)}
+
+
+@app.get("/api/typhoons/{year}/{seq}")
+async def get_typhoon_track(
+    year: int = Path(ge=1951, le=2100),
+    seq: int = Path(ge=1, le=99, description="태풍 번호 (목록의 seq)"),
+    http: httpx.AsyncClient = Depends(get_http),
+):
+    """태풍 경로 (기상청). observed=true는 분석(관측) 위치, false는 예측 위치."""
+    try:
+        track = await kma.fetch_typhoon_track(http, year, seq)
+    except kma.KmaError as e:
+        raise HTTPException(e.status, e.message) from None
+    if not track:
+        raise HTTPException(404, "해당 태풍의 경로 자료가 없습니다.")
+    return {"year": year, "seq": seq, "track": track, "total": len(track)}
 
 
 @app.get("/api/guides/{disaster_type}")
