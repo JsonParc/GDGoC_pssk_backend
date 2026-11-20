@@ -33,7 +33,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | --- | --- | --- |
 | POST | `/api/articles` | 크롤러가 기사 목록을 한 번에 보냄 (최대 500개) |
 | GET | `/api/disasters?type=heavysnow&limit=20&offset=0` | 재난 카드 목록. 종류는 행동지침 종류와 같음(`flood` `typhoon` `heavysnow` `coldwave` `heatwave` `strongwind` `wave` `yellowdust` `tsunami` `earthquake` `wildfire` `dry` `stormsurge` `fog`) + `other`. 카드의 `type`으로 `/api/guides/{type}`를 바로 조회 |
-| GET | `/api/disasters/{id}` | 재난 상세 + 원문 기사 링크 |
+| GET | `/api/disasters/{id}` | 재난 상세 + 원문 기사 링크 + **`map_effect`**(프론트 3D 지도 재난 효과 입력값, 아래 참고). 목록에는 `map_effect_supported`·`map_effect_type`만 |
 | GET | `/api/guides` | 재난별 행동지침 전체 (호우·태풍·대설·한파·폭염·강풍·풍랑·황사·지진해일·지진·산불·건조·폭풍해일·안개). `needs_writing: true`는 공식 문구가 없어 직접 작성 필요 |
 | GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침을 특보 **단계(예비특보·주의보·경보)별로** 묶어서, 해당 특보 지역과 함께 줌. 특보가 해제되면 빠짐 |
 | GET | `/api/guides/{type}?level=경보` | 재난 하나의 행동지침. 공통 `steps` + 단계 `level`(공식 기준 `criteria`, 단계 지침 `steps`). `level`을 비우면 모든 단계. 단계 이름: 특보 `예비특보·주의보·경보`(폭염 `중대경보`), 지진 `진도 Ⅰ`~`진도 Ⅻ`, 태풍 `강도 1`~`강도 5` |
@@ -99,11 +99,32 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 - 전송에 실패한 기사는 `crawler/pending_articles.json`에 두었다가 다음 실행 때 먼저 보냅니다.
 - 언론사를 추가하려면 `crawler.py`의 `SITE_RULES`에 목록 링크·본문 CSS 선택자를 넣습니다. 규칙이 없는 사이트는 자동 판별로 수집합니다.
 
+### 지도 재난 효과 입력값 (`app/map_effect.py`)
+
+카드 상세의 `map_effect`를 프론트 브이월드 3D 지도에 그대로 넣으면 됩니다.
+
+```js
+const card = await (await fetch(`http://localhost:8001/api/disasters/${id}`)).json();
+const e = card.map_effect;
+if (e.supported) koreaDisaster.set(e.type, e.params, e.position);
+```
+
+```json
+"map_effect": {"supported": true, "type": "snow", "params": {"wind": 30.0, "temp": -6.0},
+               "position": {"longitude": 127.153, "latitude": 35.7175}, "sources": {"wind": "article", "temp": "article"}}
+```
+
+- 종류와 값 이름·단위는 뷰어 `js/disaster.js`의 `DisasterFX.TYPES`에 맞춤 (카드 `earthquake` → `quake`, `heavysnow`·`coldwave` → `snow`). 범위를 넘는 값과 빈 값은 프론트가 최소·최대·기본값으로 맞춤
+- 지원: 태풍·호우·지진·지진해일·산불·폭염·대설·한파. 나머지(강풍·풍랑·황사·건조·폭풍해일·안개·기타)는 `supported: false`
+- `position`은 카드 좌표(Gemini가 지역 이름으로 추정한 지역 중심)
+- `sources`: `article` 기사 값, `derived` 기사 값으로 계산(총량 ÷ 지속 시간), `kma_current` 기상청 지금 날씨(카드 날짜가 오늘·어제이고 한국일 때 빈 값만)
+- 목록(`/api/disasters`)에는 `map_effect_supported`·`map_effect_type`만 (기상청 호출 없음)
+
 ### Gemini 분석 (`app/extract.py`)
 
 - 새 기사를 **20개씩 묶어 Gemini를 한 번** 부릅니다. 같은 사건 기사는 재난 하나로 묶습니다(언어가 달라도).
 - 기사마다 본문은 앞 1,500자만 보내고, 본문은 저장하지 않습니다.
-- 뽑는 값: 종류(행동지침 14종 + other, `app/guides.py`의 `DISASTER_TYPES`), 한국어 제목·요약, 위치·위경도, 날짜, 피해 규모, `viz_params`(`rainfall_mm`, `flood_depth_m`, `burned_area_ha`, `max_temp_c`, `min_temp_c`, `snowfall_cm`, `max_wind_ms`, `magnitude`, 기사에 수치가 없으면 비움).
+- 뽑는 값: 종류(행동지침 14종 + other, `app/guides.py`의 `DISASTER_TYPES`), 한국어 제목·요약, 위치·위경도, 날짜, 피해 규모, `viz_params`(`rainfall_mm`, `flood_depth_m`, `burned_area_ha`, `max_temp_c`, `min_temp_c`, `snowfall_cm`, `max_wind_ms`, `magnitude`, `rain_rate_mm_h`, `duration_hours`, `duration_days`, `snow_rate_cm_h`, `humidity_pct`, `wind_dir_deg`, `depth_km`, `wave_height_m`, 기사에 수치가 없으면 비움).
 - 결과는 `app/main.py`의 `DisasterIn`으로 검증합니다. 형식이 틀렸거나 Gemini가 실패한 기사는 저장하지 않아서, 다음 전송 때 다시 분석됩니다.
 - 모델이 붐비면(503·429·시간 초과) `GEMINI_MODELS`의 다음 모델로 한 번 넘어갑니다.
 - `GEMINI_API_KEY`가 없으면 키워드 규칙으로 대신합니다(테스트·연습용).

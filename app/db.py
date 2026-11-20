@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS articles (
 
 
 def connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    # 요청마다 새 연결을 만들고 그 요청 안에서만 차례로 씀. async 주소는 연결을 만든 스레드와 다른 스레드에서 쓰므로 허용
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     return conn

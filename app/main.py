@@ -4,7 +4,7 @@ import os
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path as FilePath
 from typing import Literal
 
@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
-from . import db, extract as extractor, guides, kma
+from . import db, extract as extractor, guides, kma, map_effect
 
 load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
@@ -163,6 +163,33 @@ def ingest_articles(articles: list[ArticleIn], conn: sqlite3.Connection = Depend
     }
 
 
+def get_http(request: Request) -> httpx.AsyncClient:
+    # 서버는 lifespan에서 만들어 둠. 시작 단계를 거치지 않는 테스트 클라이언트에서는 처음 쓸 때 만듦
+    if not hasattr(request.app.state, "http"):
+        request.app.state.http = httpx.AsyncClient()
+    return request.app.state.http
+
+
+KOREA_LAT, KOREA_LON = (32, 39.5), (124, 132)
+CURRENT_WEATHER_DAYS = 1  # 카드 날짜가 오늘·어제일 때만 기상청 지금 날씨로 빈 지도 효과 값을 채움
+
+
+def with_effect_flag(card: dict) -> dict:
+    """목록용: 지도 재난 효과 지원 여부와 프론트 종류만 (기상청 호출 없음)"""
+    front = map_effect.FRONT_TYPE.get(card["type"])
+    return {**card, "map_effect_supported": front is not None, "map_effect_type": front}
+
+
+def _needs_current_weather(card: dict) -> bool:
+    if map_effect.FRONT_TYPE.get(card["type"]) not in map_effect.FROM_KMA_CURRENT:
+        return False
+    lat, lon, date = card.get("lat"), card.get("lon"), card.get("date") or ""
+    if lat is None or lon is None or not (KOREA_LAT[0] <= lat <= KOREA_LAT[1] and KOREA_LON[0] <= lon <= KOREA_LON[1]):
+        return False
+    since = (datetime.now(kma.KST) - timedelta(days=CURRENT_WEATHER_DAYS)).strftime("%Y-%m-%d")
+    return date[:10] >= since
+
+
 @app.get("/api/disasters")
 def list_disasters(
     type: DisasterType | None = None,
@@ -176,22 +203,33 @@ def list_disasters(
         f"SELECT * FROM disasters {where} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?",
         [*args, limit, offset],
     ).fetchall()
-    return {"items": [db.row_to_disaster(r) for r in rows], "total": total, "limit": limit, "offset": offset}
+    items = [with_effect_flag(db.row_to_disaster(r)) for r in rows]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/disasters/{disaster_id}")
-def get_disaster(disaster_id: int, conn: sqlite3.Connection = Depends(get_db)):
+async def get_disaster(
+    disaster_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+    http: httpx.AsyncClient = Depends(get_http),
+):
+    """카드 상세 + 원문 기사 + map_effect(프론트 koreaDisaster.set(type, params, position)에 그대로 넣는 값)"""
     row = conn.execute("SELECT * FROM disasters WHERE id = ?", (disaster_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "재난을 찾을 수 없습니다.")
     sources = conn.execute(
         "SELECT title, url, source, published_at FROM articles WHERE disaster_id = ?", (disaster_id,)
     ).fetchall()
-    return {**db.row_to_disaster(row), "sources": [dict(s) for s in sources]}
+    card = db.row_to_disaster(row)
 
-
-def get_http(request: Request) -> httpx.AsyncClient:
-    return request.app.state.http
+    current = None
+    if _needs_current_weather(card):
+        try:
+            current = (await kma.fetch_current(http, card["lat"], card["lon"]))["values"]
+        except kma.KmaError as e:  # 기상청이 실패해도 카드는 보여 줌 (기사 값만으로 지도 효과)
+            log.warning("지도 효과용 지금 날씨 조회 실패: %s", e.message)
+    effect = map_effect.build(card, current)
+    return {**with_effect_flag(card), "sources": [dict(s) for s in sources], "map_effect": effect}
 
 
 async def active_warnings_with_guides(http: httpx.AsyncClient) -> list[dict]:
