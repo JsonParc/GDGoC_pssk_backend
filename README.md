@@ -32,7 +32,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | 메서드 | 주소 | 설명 |
 | --- | --- | --- |
 | POST | `/api/articles` | 크롤러가 기사 목록을 한 번에 보냄 (최대 500개) |
-| GET | `/api/disasters?type=flood&limit=20&offset=0` | 재난 목록 (`flood` `wildfire` `heatwave` `other`) |
+| GET | `/api/disasters?type=heavysnow&limit=20&offset=0` | 재난 카드 목록. 종류는 행동지침 종류와 같음(`flood` `typhoon` `heavysnow` `coldwave` `heatwave` `strongwind` `wave` `yellowdust` `tsunami` `earthquake` `wildfire` `dry` `stormsurge` `fog`) + `other`. 카드의 `type`으로 `/api/guides/{type}`를 바로 조회 |
 | GET | `/api/disasters/{id}` | 재난 상세 + 원문 기사 링크 |
 | GET | `/api/guides` | 재난별 행동지침 전체 (호우·태풍·대설·한파·폭염·강풍·풍랑·황사·지진해일·지진·산불·건조·폭풍해일·안개). `needs_writing: true`는 공식 문구가 없어 직접 작성 필요 |
 | GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침을 특보 **단계(예비특보·주의보·경보)별로** 묶어서, 해당 특보 지역과 함께 줌. 특보가 해제되면 빠짐 |
@@ -98,7 +98,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 
 - 새 기사를 **20개씩 묶어 Gemini를 한 번** 부릅니다. 같은 사건 기사는 재난 하나로 묶습니다(언어가 달라도).
 - 기사마다 본문은 앞 1,500자만 보내고, 본문은 저장하지 않습니다.
-- 뽑는 값: 종류(flood·wildfire·heatwave·other), 한국어 제목·요약, 위치·위경도, 날짜, 피해 규모, `viz_params`(`rainfall_mm`, `flood_depth_m`, `burned_area_ha`, `max_temp_c`, 기사에 수치가 없으면 비움).
+- 뽑는 값: 종류(행동지침 14종 + other, `app/guides.py`의 `DISASTER_TYPES`), 한국어 제목·요약, 위치·위경도, 날짜, 피해 규모, `viz_params`(`rainfall_mm`, `flood_depth_m`, `burned_area_ha`, `max_temp_c`, `min_temp_c`, `snowfall_cm`, `max_wind_ms`, `magnitude`, 기사에 수치가 없으면 비움).
 - 결과는 `app/main.py`의 `DisasterIn`으로 검증합니다. 형식이 틀렸거나 Gemini가 실패한 기사는 저장하지 않아서, 다음 전송 때 다시 분석됩니다.
 - 모델이 붐비면(503·429·시간 초과) `GEMINI_MODELS`의 다음 모델로 한 번 넘어갑니다.
 - `GEMINI_API_KEY`가 없으면 키워드 규칙으로 대신합니다(테스트·연습용).

@@ -81,7 +81,7 @@ def test_failed_extraction_is_retried_next_time(client, monkeypatch):
 
 
 def test_invalid_extract_output_is_retried(client, monkeypatch):
-    monkeypatch.setattr(extractor, "extract_batch", lambda arts: [{"article_ids": [0], "type": "tsunami", "title": "x"}])
+    monkeypatch.setattr(extractor, "extract_batch", lambda arts: [{"article_ids": [0], "type": "volcano", "title": "x"}])
     res = client.post("/api/articles", json=[FLOOD, OTHER]).json()
     assert (res["new"], res["failed"]) == (1, 1)
 
@@ -89,7 +89,7 @@ def test_invalid_extract_output_is_retried(client, monkeypatch):
 def test_filter_by_type_and_reject_unknown_type(client):
     client.post("/api/articles", json=[FLOOD, {"title": "강원 산불 확산", "url": "https://news.example.com/3"}])
     assert client.get("/api/disasters?type=wildfire").json()["total"] == 1
-    assert client.get("/api/disasters?type=tsunami").status_code == 422
+    assert client.get("/api/disasters?type=volcano").status_code == 422
 
 
 def test_ingest_rejects_missing_or_wrong_token(client):
@@ -114,3 +114,15 @@ def test_not_found(client):
     assert client.get("/api/guides/volcano").status_code == 404
     guide = client.get("/api/guides/flood").json()
     assert guide["steps"] and guide["source"].startswith("https://")
+
+
+def test_card_types_match_guide_types(client, monkeypatch):
+    from app import guides
+    assert set(guides.DISASTER_TYPES) == set(guides.GUIDE_BY_TYPE) | {"other"}
+    group = {"article_ids": [0], "type": "heavysnow", "title": "전북 대설", "summary": "요약",
+             "viz_params": {"snowfall_cm": 15.3, "max_wind_ms": 30}}
+    monkeypatch.setattr(extractor, "extract_batch", lambda arts: [group])
+    client.post("/api/articles", json=[FLOOD])
+    card = client.get("/api/disasters?type=heavysnow").json()["items"][0]
+    assert card["viz_params"] == {"snowfall_cm": 15.3, "max_wind_ms": 30}
+    assert client.get(f"/api/guides/{card['type']}").status_code == 200  # 카드 종류로 바로 행동지침 조회

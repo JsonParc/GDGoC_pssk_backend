@@ -20,7 +20,7 @@ load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
 log = logging.getLogger(__name__)
 
-DisasterType = Literal["flood", "wildfire", "heatwave", "other"]
+DisasterType = Literal[guides.DISASTER_TYPES]  # 행동지침 종류 + other
 MAX_BATCH = 500
 
 

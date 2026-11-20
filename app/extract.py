@@ -14,6 +14,8 @@ import os
 
 import httpx
 
+from .guides import DISASTER_TYPE_HINTS, DISASTER_TYPES
+
 log = logging.getLogger(__name__)
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -25,11 +27,13 @@ BATCH_SIZE = 20  # Gemini 한 번에 보낼 기사 수
 CONTENT_CHARS = 1500  # 기사마다 본문 앞부분만 보냄
 TIMEOUT_SECONDS = 60
 
-PROMPT = """너는 기후·재난 뉴스 분석기다. 아래 기사 목록에서 실제로 일어난 기후 재난만 골라 정리한다.
+_TYPE_LIST = ", ".join(f"{t}({DISASTER_TYPE_HINTS.get(t, t)})" for t in DISASTER_TYPES)
+
+PROMPT = f"""너는 기후·재난 뉴스 분석기다. 아래 기사 목록에서 실제로 일어난 기후 재난만 골라 정리한다.
 규칙:
 - 같은 사건을 다룬 기사는 하나의 재난으로 묶고, article_ids에 그 기사 번호를 모두 넣는다.
 - 재난이 아닌 기사(정책, 예방 캠페인, 경제 등)는 어떤 재난에도 넣지 않는다.
-- type: flood(홍수·호우·침수), wildfire(산불), heatwave(폭염), other(태풍·가뭄·한파 등 그 밖의 기후 재난).
+- type은 다음 중 가장 맞는 하나: {_TYPE_LIST}. 여러 현상이 겹치면 피해가 가장 큰 것으로 고른다.
 - title과 summary는 한국어로 쓴다. 해외 기사도 한국어로 요약한다. summary는 2~3문장.
 - location은 "국가 지역" 형태(예: "대한민국 부산", "파키스탄 신드주"). lat, lon은 그 지역의 대략적인 중심 좌표.
 - date는 재난이 일어난 날짜(YYYY-MM-DD). 기사에 없으면 발행일.
@@ -48,7 +52,7 @@ RESPONSE_SCHEMA = {
                 "type": "OBJECT",
                 "properties": {
                     "article_ids": {"type": "ARRAY", "items": {"type": "INTEGER"}},
-                    "type": {"type": "STRING", "enum": ["flood", "wildfire", "heatwave", "other"]},
+                    "type": {"type": "STRING", "enum": list(DISASTER_TYPES)},
                     "title": {"type": "STRING"},
                     "summary": {"type": "STRING"},
                     "location": {"type": "STRING", "nullable": True},
@@ -65,6 +69,10 @@ RESPONSE_SCHEMA = {
                             "flood_depth_m": _NUMBER,
                             "burned_area_ha": _NUMBER,
                             "max_temp_c": _NUMBER,
+                            "min_temp_c": _NUMBER,
+                            "snowfall_cm": _NUMBER,
+                            "max_wind_ms": _NUMBER,
+                            "magnitude": _NUMBER,
                         },
                     },
                 },
@@ -80,6 +88,10 @@ KEYWORDS = {
     "flood": ("홍수", "침수", "폭우", "flood"),
     "wildfire": ("산불", "wildfire"),
     "heatwave": ("폭염", "heatwave", "heat wave"),
+    "typhoon": ("태풍", "typhoon"),
+    "earthquake": ("지진", "earthquake"),
+    "heavysnow": ("대설", "폭설", "heavy snow"),
+    "coldwave": ("한파", "cold wave"),
 }
 
 

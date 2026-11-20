@@ -612,6 +612,15 @@ GUIDES = [
 ]
 
 GUIDE_BY_TYPE = {guide["type"]: guide for guide in GUIDES}
+# 재난 카드 종류 = 행동지침 종류 + other. 지침을 추가하면 카드 종류도 같이 늘어남
+DISASTER_TYPES = (*GUIDE_BY_TYPE, "other")
+# Gemini에게 알려 주는 종류 설명
+DISASTER_TYPE_HINTS = {
+    "flood": "호우·홍수·침수", "typhoon": "태풍", "heavysnow": "대설·폭설", "coldwave": "한파",
+    "heatwave": "폭염", "strongwind": "강풍", "wave": "풍랑·높은 파도", "yellowdust": "황사",
+    "tsunami": "지진해일(쓰나미)", "earthquake": "지진", "wildfire": "산불", "dry": "건조(산불 위험)",
+    "stormsurge": "폭풍해일", "fog": "안개", "other": "그 밖의 기후 재난(가뭄 등)",
+}
 GUIDE_TYPE_BY_WARNING = {guide["warning_code"]: guide["type"] for guide in GUIDES if guide["warning_code"]}
 
 
