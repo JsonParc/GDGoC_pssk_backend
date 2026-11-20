@@ -517,6 +517,22 @@ def get_region_scenarios(region_id: int, disaster_type: Literal["all", "flood"] 
     return result["scenario"]
 
 
+class PointIn(BaseModel):
+    latitude: float = Field(ge=32, le=39.5)
+    longitude: float = Field(ge=124, le=132)
+
+
+@app.post("/api/regions/changes/{change_id}/card")
+def save_change_as_card(change_id: int, at: PointIn | None = None, conn: sqlite3.Connection = Depends(get_db)):
+    """'이 지점 이력'의 재난 항목을 재난 카드로 저장 (최근 탭에 보임). 위치는 at(클릭한 지점), 없으면 항목·지역 좌표.
+    분석 결과에 있는 항목만 올릴 수 있고, 같은 항목은 한 번만 만들어짐 (아무 내용이나 넣는 주소가 아님)"""
+    saved = regions.change_to_card(conn, change_id, at.model_dump() if at else None)
+    if saved is None:
+        raise HTTPException(404, "저장할 수 있는 재난 이력 항목이 아닙니다. 지역을 다시 분석해 주세요.")
+    disaster_id, created = saved
+    return {"disaster_id": disaster_id, "created": created}
+
+
 # 프론트 화면 (반드시 맨 끝: 위의 API 주소가 먼저 잡히고 나머지 주소만 프론트 파일로 감)
 _frontend = frontend.frontend_dir()
 if _frontend:

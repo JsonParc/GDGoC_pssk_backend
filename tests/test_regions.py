@@ -361,3 +361,26 @@ def test_disaster_events_carry_map_effect_like_cards(client, fake):
     assert snow["map_effect"]["type"] == "snow" and snow["map_effect"]["params"] == {}  # 적설 수치가 없으면 눈 효과 값도 없음
     pump = next(c for c in changes if c["change_type"] == "drainage_pump")
     assert pump["map_effect"] is None  # 시설 공사는 재현 대상 아님
+
+
+def test_replayed_event_becomes_a_card_once(client, fake):
+    fake["changes"] = full_changes()
+    _, body = analyze(client)
+    changes = client.get(f"/api/analysis/{body['job_id']}").json()["result"]["changes"]
+    flood = next(c for c in changes if c["change_type"] == "disaster_event")
+    pump = next(c for c in changes if c["change_type"] == "drainage_pump")
+
+    first = client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 37.51, "longitude": 127.05}).json()
+    again = client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 37.51, "longitude": 127.05}).json()
+    assert first["created"] and not again["created"] and first["disaster_id"] == again["disaster_id"]
+    assert client.post(f"/api/regions/changes/{pump['id']}/card").status_code == 404  # 시설 공사는 카드가 아님
+    assert client.post("/api/regions/changes/9999/card").status_code == 404
+    assert client.post(f"/api/regions/changes/{flood['id']}/card", json={"latitude": 10, "longitude": 127}).status_code == 422
+
+    card = client.get(f"/api/disasters/{first['disaster_id']}").json()
+    assert card["type"] == "flood" and card["date"] == "2022-08-08" and card["location"] == "대한민국 서울특별시 강남구"
+    assert (card["lat"], card["lon"]) == (37.51, 127.05)
+    assert card["viz_params"] == {"rain_rate_mm_h": 116, "flooded_buildings": 300}  # 기사 수치만
+    assert [s["url"] for s in card["sources"]] == ["https://news.example.com/a1"]
+    listed = client.get("/api/disasters").json()["items"]
+    assert any(i["id"] == first["disaster_id"] for i in listed)
