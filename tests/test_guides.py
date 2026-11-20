@@ -43,7 +43,8 @@ def test_list_guides(client):
     items = {g["type"]: g for g in client.get("/api/guides").json()["items"]}
     assert {"flood", "typhoon", "earthquake", "heatwave", "coldwave", "wildfire"} <= set(items)
     assert items["typhoon"]["warning_code"] == "T" and items["typhoon"]["steps"]
-    assert items["dry"]["needs_writing"] is True  # 공식 문구 없음
+    assert not any(g["needs_writing"] for g in items.values())  # 모든 재난에 공통 지침이 있음
+    assert items["dry"]["steps"] and items["dry"]["source"] is None  # 팀 작성 문구
 
 
 def test_active_guides_follow_warnings_and_region(client):
