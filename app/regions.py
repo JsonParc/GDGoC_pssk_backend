@@ -28,11 +28,12 @@ REFRESH_COOLDOWN_MINUTES = 10  # 새로고침(force_refresh)도 이 시간 안�
 JOB_TIMEOUT_SECONDS = 240
 MAX_RUNNING_JOBS = 2  # 동시에 도는 분석 수
 MAX_ACTIVE_JOBS = 6  # 대기 포함 최대 작업 수 (넘으면 429)
-PER_QUERY = 10  # 검색어마다 받을 결과 수
+PER_QUERY = 30  # 검색어마다 받을 결과 수 (커뮤니티·위키를 거르고 나면 줄어듦)
+KEEP_PER_QUERY = 7  # 검색어마다 분석에 넣을 수 (한 재난 종류가 자리를 다 차지하지 않게)
 # 분석 범위(scope)별 검색어. all: 클릭한 지점의 모든 재난 이력, flood: 홍수 + 배수시설만
 QUERIES = {
-    "all": ("침수 피해", "산불", "태풍 피해", "폭설 피해", "지진", "폭염 피해", "산사태", "강풍 피해", "가뭄",
-            "배수펌프장 준공", "차수벽 설치", "하천 정비 준공"),
+    "all": ("역대 최악 재난", "침수 피해", "대형 산불 피해", "태풍 피해", "폭설 피해", "지진", "폭염 피해", "산사태",
+            "강풍 피해", "가뭄", "배수펌프장 준공", "차수벽 설치", "하천 정비 준공"),
     "flood": ("침수 피해", "배수펌프장", "빗물펌프장 증설", "차수벽 설치", "하천 정비 준공", "저류조 준공", "하수관로 정비"),
 }
 PROGRESS = {"queued": 0, "news_search": 10, "extraction": 40, "timeline": 75, "scenario": 90, "done": 100}
@@ -58,6 +59,16 @@ def name_stem(name: str) -> str:
     """'서울특별시 강남구' -> '강남' (기사 관련성 확인용). 두 글자 이하는 그대로"""
     last = region_key(name).split(" ")[-1]
     return last[:-1] if len(last) > 2 and last[-1] in "시군구동읍면" else last
+
+
+def search_name(name: str) -> str:
+    """검색어용 짧은 이름. 정식 이름('강원특별자치도 강릉시')은 지역 안내 페이지만 잔뜩 나와서 '강릉'처럼 줄임.
+    '중구'처럼 두 글자면 여러 도시에 있어서 앞 지역을 붙임('서울 중구')"""
+    parts = region_key(name).split(" ")
+    if len(parts[-1]) > 2 or len(parts) < 2:
+        return name_stem(name)
+    parent = re.sub(r"(특별자치도|특별자치시|특별시|광역시|도|시|군)$", "", parts[-2]) or parts[-2]
+    return f"{parent} {parts[-1]}"
 
 
 def normalize_url(url: str) -> str:
@@ -182,15 +193,15 @@ def search_documents(conn: sqlite3.Connection, term: str, limit: int = rx.MAX_DO
 
 async def collect_documents(conn: sqlite3.Connection, http: httpx.AsyncClient, name: str, scope: str) -> list[dict]:
     stem = name_stem(name)
-    found = []
+    relevant = []
     for q in QUERIES[scope]:
-        found += await kakao.search_news(http, f"{region_key(name)} {q}", PER_QUERY)
-    relevant = [i for i in found if stem in i["title"] + i["summary"]]
+        found = await kakao.search_news(http, f"{search_name(name)} {q}", PER_QUERY)
+        relevant += [i for i in found if stem in i["title"] + i["summary"]][:KEEP_PER_QUERY]
     docs = {d["id"]: d for d in store_documents(conn, relevant)}
     for d in search_documents(conn, stem):  # 예전에 모은 같은 지역 근거도 함께 (최신 기사만으로 과거를 덮어쓰지 않게)
         docs.setdefault(d["id"], d)
     conn.commit()
-    return sorted(docs.values(), key=lambda d: d["published_at"] or "", reverse=True)[:rx.MAX_DOCS]
+    return list(docs.values())[:rx.MAX_DOCS]  # 검색 순서 유지 (날짜순으로 자르면 오래된 재난이 빠짐)
 
 
 def extract_changes(docs: list[dict]) -> list[dict]:

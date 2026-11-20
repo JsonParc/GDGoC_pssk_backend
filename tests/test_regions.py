@@ -58,6 +58,15 @@ def test_numbers_not_in_source_are_dropped_and_bad_input_rejected():
     assert rx.verify(change(occurred_at="어제", change_type="weird"), docs, TODAY)["change_type"] == "other"
 
 
+def test_building_fire_is_not_wildfire():
+    docs = [{"id": 1, "title": "구룡마을 화재", "summary": "구룡마을 가건물에서 화재가 발생해 주민 대피", "published_at": "2026-10-27"},
+            {"id": 2, "title": "대모산 산불", "summary": "대모산에서 산불이 나 임야 3ha 소실", "published_at": "2024-04-02"}]
+    fire = dict(change_type="disaster_event", disaster_type="wildfire", facility_name=None, status="occurred")
+    house = rx.verify(change(source_ids=[0], description="구룡마을 가건물 화재", evidence_quote="가건물에서 화재가 발생", **fire), docs, TODAY)
+    forest = rx.verify(change(source_ids=[1], description="대모산 산불", evidence_quote="산불이 나 임야 3ha 소실", **fire), docs, TODAY)
+    assert (house["disaster_type"], forest["disaster_type"]) == ("other", "wildfire")
+
+
 def test_merge_same_facility_keeps_all_sources_and_marks_conflict():
     docs = docs_of(NEWS)
     a = rx.verify(change(source_ids=[1], status="under_construction", started_at="2023-03", evidence_quote="착공했다"), docs, TODAY)
@@ -71,6 +80,13 @@ def test_merge_same_facility_keeps_all_sources_and_marks_conflict():
     assert set(pump["sources"]) == {2, 3}
     assert other["disaster_type"] == "flood"
     assert {x["status"] for x in pump["conflicts"]} == {"under_construction", "completed"}
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("강원특별자치도 강릉시", "강릉"), ("서울특별시 강남구", "강남"), ("서울특별시 중구", "서울 중구"),
+    ("부산광역시 중구", "부산 중구"), ("강남구 대치동", "대치"), ("세종", "세종")])
+def test_search_name_is_short_but_unambiguous(name, expected):
+    assert regions.search_name(name) == expected
 
 
 def test_url_normalization_dedups_tracking_and_mobile():
@@ -139,14 +155,14 @@ def fake(monkeypatch):
 
 
 def full_changes():
-    # 검색 결과 순서: 날짜 최신순 a3(0), a2(1), a1(2)
+    # 검색 결과 순서 그대로: a1(0), a2(1), a3(2)
     return [
-        change(source_ids=[2], change_type="disaster_event", disaster_type="flood", facility_name=None, status="occurred",
+        change(source_ids=[0], change_type="disaster_event", disaster_type="flood", facility_name=None, status="occurred",
                occurred_at="2022-08-08", description="폭우 침수",
                metrics={"rain_rate_mm_h": 116, "flooded_buildings": 300}, evidence_quote="300가구 침수"),
         change(source_ids=[1], status="under_construction", started_at="2023-03", evidence_quote="증설 공사를 착공했다",
                metrics={"design_rain_before_mm_h": 85, "design_rain_after_mm_h": 110}),
-        change(source_ids=[0], status="completed", completed_at="2025-06-01", evidence_quote="증설 공사가 준공됐다",
+        change(source_ids=[2], status="completed", completed_at="2025-06-01", evidence_quote="증설 공사가 준공됐다",
                metrics={"design_rain_after_mm_h": 110}),
     ]
 

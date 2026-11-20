@@ -4,7 +4,7 @@
 - 파라미터: query, sort(accuracy|recency), page 1~50, size 1~50. 웹문서 검색 하루 30,000회 (2026-11-21 공식 문서 확인)
 - 응답 documents: title, contents(본문 일부), url, datetime(ISO 8601). title·contents에 <b> 강조 태그가 섞여 있어 벗겨냄
 - 오류 본문에 code: -10 요청 한도 초과, -401 키 오류, -3·-5 권한·설정 문제. 키 없이 부르면 401 AccessDeniedError (직접 확인)
-- 뉴스 전용이 아니라 웹문서 전체 검색이라 블로그 등도 섞임. 본문은 가져오지 않고 제목·요약만 분석에 씀
+- 뉴스 전용이 아니라 웹문서 전체 검색이라 커뮤니티·위키는 EXCLUDED_DOMAINS로 거름. 본문은 가져오지 않고 제목·요약만 분석에 씀
 """
 
 import html
@@ -20,6 +20,12 @@ log = logging.getLogger(__name__)
 API_URL = "https://dapi.kakao.com/v2/search/web"
 TIMEOUT_SECONDS = 10
 _TAG = re.compile(r"<[^>]+>")
+# 사실 근거로 쓰기 어려운 커뮤니티·위키·블로그 (뒤쪽 일치)
+# shortcut: 눈에 띈 곳만 막음(2026-11-21 강남구 검색 결과 기준), 새로 섞이는 곳이 보이면 여기에 추가
+EXCLUDED_DOMAINS = ("namu.wiki", "dcinside.com", "fmkorea.com", "ppomppu.co.kr", "clien.net", "theqoo.net",
+                    "instiz.net", "ruliweb.com", "bobaedream.co.kr", "mimint.co.kr", "pullbbang.com", "ezday.co.kr",
+                    "tistory.com", "blog.naver.com", "cafe.naver.com", "cafe.daum.net", "brunch.co.kr",
+                    "picjjang.com", "donkiugi.com", "danawa.com", "gimi9.com", "hasu24.com", "total-mac.com")
 
 
 class NewsSearchError(Exception):
@@ -73,4 +79,8 @@ async def search_news(http: httpx.AsyncClient, query: str, size: int = 10) -> li
     if res.status_code != 200:
         raise _error(res)
     docs = [parse_doc(d) for d in res.json().get("documents", [])]
-    return [d for d in docs if d["url"].startswith(("http://", "https://")) and d["title"]]
+    return [d for d in docs if d["url"].startswith(("http://", "https://")) and d["title"] and not excluded(d["publisher"])]
+
+
+def excluded(host: str | None) -> bool:
+    return not host or any(host == d or host.endswith("." + d) for d in EXCLUDED_DOMAINS)
