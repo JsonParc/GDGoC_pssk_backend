@@ -22,6 +22,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | --- | --- | --- |
 | `KMA_API_KEY` | 없음 | 기상청 API허브 인증키. 없으면 `/api/warnings`, `/api/forecast`가 503 |
 | `GEMINI_API_KEY` | 없음 | Google AI Studio 키. 없으면 기사 분석을 키워드 규칙으로 대신함 |
+| `GEMINI_API_KEY_BACKUP` | 없음 | 비상용 Gemini 키(다른 Google 계정). 주 키의 모든 모델이 붐빌 때(429·503·시간 초과)만 씀. 그 계정 사용량으로 잡히므로 키 주인에게 알리고, 한도 우회 용도로 상시 쓰지 않기 |
 | `GEMINI_MODELS` | `gemini-3.5-flash,gemini-3.5-flash-lite` | 쓸 모델 순서(앞 모델이 붐비면 다음 모델) |
 | `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
 | `FRONTEND_DIR` | 옆 폴더 `../GDGoC_TUK_pssk` | 프론트(뷰어 저장소) 폴더. 있으면 이 서버가 프론트 화면도 같이 보냄(아래 '서버 하나로 운영') |

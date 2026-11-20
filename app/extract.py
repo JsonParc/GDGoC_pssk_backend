@@ -153,7 +153,8 @@ def retry_after(res: httpx.Response) -> float | None:
 
 def call_gemini(text: str, schema: dict, key: str, deadline: float | None = None) -> dict:
     """JSON 형식(schema)으로 답을 받음. 모든 모델 실패·형식 오류는 GeminiError
-    deadline(time.monotonic 기준)을 주면 모든 모델이 붐빌 때(429·503·시간 초과) 기다렸다 다시 시도함. 없으면 한 번만"""
+    deadline(time.monotonic 기준)을 주면 모든 모델이 붐빌 때(429·503·시간 초과) 기다렸다 다시 시도함. 없으면 한 번만
+    GEMINI_API_KEY_BACKUP(비상 키)이 있으면 주 키의 모든 모델이 붐빌 때만 비상 키로 같은 모델들을 한 번 더 시도함"""
     body = {
         "contents": [{"role": "user", "parts": [{"text": text}]}],
         "generationConfig": {
@@ -163,23 +164,25 @@ def call_gemini(text: str, schema: dict, key: str, deadline: float | None = None
         },
     }
     models = [m.strip() for m in os.getenv("GEMINI_MODELS", DEFAULT_MODELS).split(",") if m.strip()]
+    backup = os.getenv("GEMINI_API_KEY_BACKUP", "").strip()
+    tries = [(k, model) for k in dict.fromkeys([key, backup]) if k for model in models]  # 주 키 모델들 -> 비상 키 모델들
     for attempt in range(len(RETRY_WAITS) + 1):
         res, waits = None, []
-        for model in models:
+        for k, model in tries:
             left = deadline - time.monotonic() if deadline else TIMEOUT_SECONDS
             if left < MIN_CALL_SECONDS:
                 break
             try:
-                res = httpx.post(API_URL.format(model=model), headers={"x-goog-api-key": key}, json=body,
+                res = httpx.post(API_URL.format(model=model), headers={"x-goog-api-key": k}, json=body,
                                  timeout=min(TIMEOUT_SECONDS, left))
             except httpx.TimeoutException:
-                log.warning("Gemini %s 시간 초과, 다음 모델 시도", model)
+                log.warning("Gemini %s%s 시간 초과, 다음 모델 시도", model, " (비상 키)" if k != key else "")
                 res = None
                 continue
             if res.status_code not in FALLBACK_STATUSES:
                 break
             waits.append(retry_after(res))
-            log.warning("Gemini %s 응답 %s, 다음 모델 시도", model, res.status_code)
+            log.warning("Gemini %s%s 응답 %s, 다음 모델 시도", model, " (비상 키)" if k != key else "", res.status_code)
             res = None
         if res is not None:
             break

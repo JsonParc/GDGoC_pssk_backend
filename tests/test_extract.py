@@ -100,12 +100,18 @@ def busy(status=429, **headers):
                           request=httpx.Request("POST", "https://x"))
 
 
+scripted_keys = []
+
+
 @pytest.fixture
 def scripted(monkeypatch):
     """Gemini 응답을 순서대로 돌려주고, 기다린 초를 기록 (실제로 자지 않음)"""
     monkeypatch.setenv("GEMINI_MODELS", "m1,m2")
     replies, slept, clock = [], [], [1000.0]
-    monkeypatch.setattr(extractor.httpx, "post", lambda url, headers, json, timeout: replies.pop(0))
+    used = []
+    monkeypatch.setattr(extractor.httpx, "post", lambda url, headers, json, timeout: (used.append(headers["x-goog-api-key"]), replies.pop(0))[1])
+    scripted_keys.clear()
+    scripted_keys.extend([used])
     monkeypatch.setattr(extractor.time, "sleep", lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s)))
     monkeypatch.setattr(extractor.time, "monotonic", lambda: clock[0])
     return replies, slept, clock
@@ -138,3 +144,25 @@ def test_retry_after_reads_header_or_body():
     assert extractor.retry_after(busy(429, **{"Retry-After": "12"})) == 12
     assert extractor.retry_after(busy(503)) == 7
     assert extractor.retry_after(httpx.Response(503, text="x", request=httpx.Request("POST", "https://x"))) is None
+
+
+def test_backup_key_is_used_only_when_main_key_is_busy(scripted, monkeypatch):
+    replies, slept, _ = scripted
+    monkeypatch.setenv("GEMINI_API_KEY_BACKUP", "backup-key")
+    replies += [busy(), busy(), gemini_reply({"ok": 1})]
+    assert extractor.call_gemini("t", {}, "main-key") == {"ok": 1}
+    assert scripted_keys[0] == ["main-key", "main-key", "backup-key"] and slept == []
+
+    scripted_keys[0].clear()
+    replies += [gemini_reply({"ok": 2})]
+    assert extractor.call_gemini("t", {}, "main-key") == {"ok": 2}
+    assert scripted_keys[0] == ["main-key"]  # 주 키가 되면 비상 키는 쓰지 않음
+
+
+def test_same_backup_key_is_not_tried_twice(scripted, monkeypatch):
+    replies, _, _ = scripted
+    monkeypatch.setenv("GEMINI_API_KEY_BACKUP", "main-key")
+    replies += [busy(), busy()]
+    with pytest.raises(extractor.GeminiError):
+        extractor.call_gemini("t", {}, "main-key")
+    assert scripted_keys[0] == ["main-key", "main-key"]
