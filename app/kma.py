@@ -19,13 +19,10 @@ WARNING_TYPES = {
     "W": "강풍", "R": "호우", "C": "한파", "D": "건조", "O": "폭풍해일", "N": "지진해일",
     "V": "풍랑", "T": "태풍", "S": "대설", "Y": "황사", "H": "폭염", "F": "안개",
 }
-WARNING_LEVELS = {"1": "예비특보", "2": "주의보", "3": "경보", "4": "중대경보"}
-CLEARED_COMMANDS = {"3", "4", "7"}  # 해제, 대치해제, 변경해제
-# shortcut: 최근 14일 발표분만 보고 발효 중인지 판단. 더 오래 이어진 특보는 빠짐 -> wrn_now_data.php 활용신청 후 교체
-WARNING_WINDOW_DAYS = 14
+WARNING_CODES = {name: code for code, name in WARNING_TYPES.items()}
+WARNING_LEVELS = {"예비": "예비특보", "주의": "주의보", "경보": "경보", "중대": "중대경보"}
 
 WARNINGS_TTL = 10 * 60
-REGIONS_TTL = 24 * 60 * 60
 FORECAST_TTL = 30 * 60
 STALE_GRACE = 6 * 60 * 60  # 기상청이 실패하면 6시간 안의 이전 결과를 대신 줌
 RETRY_STATUSES = {502, 503, 504}  # 기상청이 가끔 30초 뒤 504를 줌, 바로 다시 부르면 대개 성공
@@ -68,7 +65,9 @@ async def _get(client: httpx.AsyncClient, path: str, params: dict) -> str:
             res = await client.get(f"{BASE_URL}/{path}", params={**params, "authKey": key}, timeout=TIMEOUT_SECONDS)
         except httpx.HTTPError as e:
             # 예외 메시지에 키가 든 URL이 있어 종류만 남김
-            log.warning("기상청 호출 실패: %s %s", path, type(e).__name__)
+            log.warning("기상청 호출 실패 (%s번째): %s %s", attempt, path, type(e).__name__)
+            if attempt == 1:
+                continue
             raise KmaError(502, "기상청 API에 연결하지 못했습니다.") from None
         if res.status_code not in RETRY_STATUSES:
             break
@@ -86,62 +85,36 @@ def _data_lines(text: str) -> list[str]:
     return [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
 
 
-def parse_regions(text: str, now: str) -> dict[str, str]:
-    """wrn_reg 응답 -> {특보구역코드: 이름}. 지금 유효한 구역만."""
-    regions = {}
-    for line in _data_lines(text):
-        parts = line.split()
-        if len(parts) >= 6 and parts[2] >= now:
-            regions[parts[0]] = " ".join(parts[6:]) or parts[5]
-    return regions
+def parse_warnings(text: str) -> list[dict]:
+    """wrn_now_data(특보현황) 응답 -> 지금 발효 중인 특보.
 
-
-def parse_active_warnings(text: str, regions: dict[str, str]) -> list[dict]:
-    """wrn_met_data 응답 -> 지금 발효 중인 특보. (구역, 종류)마다 마지막 명령이 해제가 아니면 발효 중."""
-    latest = {}
+    칸: 상위구역코드, 상위구역명, 구역코드, 구역명, 발표시각, 발효시각, 종류, 수준, 명령, 해제예고, =
+    """
+    warnings = []
     for line in _data_lines(text):
-        fields = [f.strip() for f in line.split(",")]
-        if len(fields) < 8:
+        f = [x.strip() for x in line.split(",")]
+        if len(f) < 10 or "해제" in f[8]:
             continue
-        issued_at, effective_at, _, _, region_id, kind, level, command = fields[:8]
-        key = (region_id, kind)
-        if key not in latest or effective_at >= latest[key]["effective_at"]:
-            latest[key] = {"issued_at": issued_at, "effective_at": effective_at, "level": level, "command": command}
-
-    active = [
-        {
+        parent_id, parent, region_id, region, issued_at, effective_at, kind, level, command, end_notice = f[:10]
+        warnings.append({
             "region_id": region_id,
-            "region": regions.get(region_id),
-            "type": kind,
-            "type_name": WARNING_TYPES.get(kind, kind),
-            "level": WARNING_LEVELS.get(w["level"], w["level"]),
-            "issued_at": w["issued_at"],
-            "effective_at": w["effective_at"],
-        }
-        for (region_id, kind), w in latest.items()
-        if w["command"] not in CLEARED_COMMANDS
-    ]
-    return sorted(active, key=lambda w: (w["type"], w["region_id"]))
-
-
-async def fetch_regions(client: httpx.AsyncClient) -> dict[str, str]:
-    async def load():
-        text = await _get(client, "typ01/url/wrn_reg.php", {"tmfc": "0"})
-        return parse_regions(text, datetime.now(KST).strftime("%Y%m%d%H%M"))
-
-    return await _cached("regions", REGIONS_TTL, load)
+            "region": region,
+            "region_parent": parent,
+            "type": WARNING_CODES.get(kind, kind),
+            "type_name": kind,
+            "level": WARNING_LEVELS.get(level, level),
+            "command": command,
+            "issued_at": issued_at,
+            "effective_at": effective_at,
+            "end_notice": end_notice or None,  # 기상청이 예고한 해제 시점(예: "22일 오전(09시~12시)")
+        })
+    return sorted(warnings, key=lambda w: (w["type"], w["region_id"]))
 
 
 async def fetch_warnings(client: httpx.AsyncClient) -> list[dict]:
     async def load():
-        regions = await fetch_regions(client)
-        now = datetime.now(KST)
-        start = now - timedelta(days=WARNING_WINDOW_DAYS)
-        text = await _get(client, "typ01/url/wrn_met_data.php", {
-            "reg": "0", "wrn": "A", "disp": "0", "help": "0",
-            "tmfc1": start.strftime("%Y%m%d%H%M"), "tmfc2": now.strftime("%Y%m%d%H%M"),
-        })
-        return parse_active_warnings(text, regions)
+        text = await _get(client, "typ01/url/wrn_now_data.php", {"fe": "f", "tm": "", "disp": "0", "help": "0"})
+        return parse_warnings(text)
 
     return await _cached("warnings", WARNINGS_TTL, load)
 
@@ -333,3 +306,47 @@ async def fetch_typhoon_track(client: httpx.AsyncClient, year: int, seq: int) ->
         return parse_typhoon_track(text)
 
     return await _cached(("typhoon_track", year, seq), TYPHOON_TRACK_TTL, load)
+
+
+# ---- 지금 실제 날씨 (예특보 4.1 초단기실황, getUltraSrtNcst) ----
+
+CURRENT_TTL = 10 * 60
+# T1H 기온(℃), RN1 1시간 강수량(mm), REH 습도(%), PTY 강수형태(0 없음 1 비 2 비/눈 3 눈 5 빗방울 6 빗방울눈날림 7 눈날림),
+# WSD 풍속(m/s), VEC 풍향(deg), UUU 동서바람(m/s), VVV 남북바람(m/s)
+CURRENT_FIELDS = {"T1H", "RN1", "REH", "PTY", "WSD", "VEC", "UUU", "VVV"}
+
+
+def latest_observation(now: datetime) -> tuple[str, str]:
+    """가장 최근 초단기실황 시각. 매시 정각 관측이 약 40분 뒤부터 조회됨."""
+    ready = now - timedelta(minutes=40)
+    return ready.strftime("%Y%m%d"), ready.strftime("%H00")
+
+
+def parse_current(data: dict) -> dict:
+    header = data["response"]["header"]
+    if header["resultCode"] != "00":
+        raise KmaError(502, f"기상청 응답: {header['resultMsg']}")
+    return {
+        item["category"]: _number(str(item["obsrValue"]))
+        for item in data["response"]["body"]["items"]["item"]
+        if item["category"] in CURRENT_FIELDS
+    }
+
+
+async def fetch_current(client: httpx.AsyncClient, lat: float, lon: float) -> dict:
+    nx, ny = latlon_to_grid(lat, lon)
+    base_date, base_time = latest_observation(datetime.now(KST))
+
+    async def load():
+        text = await _get(client, "typ02/openApi/VilageFcstInfoService_2.0/getUltraSrtNcst", {
+            "pageNo": "1", "numOfRows": "20", "dataType": "JSON",
+            "base_date": base_date, "base_time": base_time, "nx": nx, "ny": ny,
+        })
+        try:
+            values = parse_current(json.loads(text))
+        except (ValueError, KeyError, TypeError):
+            log.warning("초단기실황 응답 형식이 예상과 다름")
+            raise KmaError(502, "기상청 응답 형식이 예상과 다릅니다.") from None
+        return {"nx": nx, "ny": ny, "observed_at": base_date + base_time, "observed": True, "values": values}
+
+    return await _cached(("current", nx, ny, base_date, base_time), CURRENT_TTL, load)

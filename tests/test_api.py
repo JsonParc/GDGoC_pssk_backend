@@ -111,6 +111,6 @@ def test_batch_size_limit(client):
 
 def test_not_found(client):
     assert client.get("/api/disasters/999").status_code == 404
-    assert client.get("/api/guides/tsunami").status_code == 404
+    assert client.get("/api/guides/volcano").status_code == 404
     guide = client.get("/api/guides/flood").json()
     assert guide["steps"] and guide["source"].startswith("https://")

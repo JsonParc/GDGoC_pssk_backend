@@ -23,6 +23,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | `KMA_API_KEY` | 없음 | 기상청 API허브 인증키. 없으면 `/api/warnings`, `/api/forecast`가 503 |
 | `GEMINI_API_KEY` | 없음 | Google AI Studio 키. 없으면 기사 분석을 키워드 규칙으로 대신함 |
 | `GEMINI_MODELS` | `gemini-3.5-flash,gemini-3.5-flash-lite` | 쓸 모델 순서(앞 모델이 붐비면 다음 모델) |
+| `ADMIN_TOKEN` | 없음 | 행동지침 고치기(`PUT /api/guides/{type}`)에 `X-Admin-Token` 헤더로 보내는 값. 없으면 고치기 503 |
 | `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | 프론트엔드 주소(쉼표로 여러 개) |
 | `DB_PATH` | `data.db` | SQLite 파일 위치 |
@@ -34,14 +35,18 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | POST | `/api/articles` | 크롤러가 기사 목록을 한 번에 보냄 (최대 500개) |
 | GET | `/api/disasters?type=flood&limit=20&offset=0` | 재난 목록 (`flood` `wildfire` `heatwave` `other`) |
 | GET | `/api/disasters/{id}` | 재난 상세 + 원문 기사 링크 |
-| GET | `/api/guides/{type}` | 재난별 행동요령 |
-| GET | `/api/warnings?type=H` | 지금 발효 중인 기상특보 (H 폭염, R 호우, D 건조, C 한파, S 대설, W 강풍 …) |
-| GET | `/api/forecast?lat=37.34&lon=126.73` | 위치의 단기예보 (TMP 기온, PCP 강수량, POP 강수확률, REH 습도 …) |
+| GET | `/api/guides` | 재난별 행동지침 전체 (호우·태풍·대설·한파·폭염·강풍·풍랑·황사·지진해일·지진·산불·건조·폭풍해일·안개). `needs_writing: true`는 공식 문구가 없어 직접 작성 필요 |
+| GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침과 해당 특보 지역. 특보가 해제되면 빠짐 |
+| GET | `/api/guides/{type}` | 재난 하나의 행동지침 |
+| PUT | `/api/guides/{type}` | 행동지침 쓰기·고치기 (`X-Admin-Token` 필요). 고친 내용은 서버를 다시 켜도 유지 |
+| GET | `/api/warnings?type=H` | 지금 발효 중인 기상특보 (특보현황 API). H 폭염, R 호우, D 건조, C 한파, S 대설, W 강풍 … `end_notice`는 기상청 해제 예고, `guide_type`은 볼 행동지침 |
+| GET | `/api/forecast?lat=37.34&lon=126.73` | 위치의 **예보** (단기예보, 1시간 간격 약 3일). TMP 기온, PCP 강수량, POP 강수확률, REH 습도 … |
+| GET | `/api/current?lat=37.34&lon=126.73` | 위치의 **지금 실제 날씨** (초단기실황, 매시 관측). T1H 기온, RN1 1시간 강수량, REH 습도, WSD 풍속 … |
 | GET | `/api/earthquakes?overseas=false` | 최근 지진 (진앙 위경도·규모·진도). `overseas` 비우면 국내외 모두 |
 | GET | `/api/typhoons?year=2025` | 연도별 태풍 목록 (`korea_effect`: 상륙·직접영향·간접영향·없음) |
 | GET | `/api/typhoons/{year}/{seq}` | 태풍 경로 (시간별 위경도·중심기압·최대풍속·15/25m/s 반경, `observed` true 분석 / false 예측) |
 
-기상청 결과는 특보 10분, 예보 30분, 특보구역 하루, 지진 5분, 태풍 목록 1시간, 태풍 경로 30분 동안 재사용합니다. 태풍 시각은 UTC입니다(한국 시간 = UTC + 9시간). 기상청이 실패하면(가끔 30초 뒤 504) 한 번 다시 부르고, 그래도 안 되면 6시간 안의 이전 결과를 줍니다.
+기상청 결과는 특보 10분, 예보 30분, 지금 날씨 10분, 지진 5분, 태풍 목록 1시간, 태풍 경로 30분 동안 재사용합니다. 태풍 시각은 UTC입니다(한국 시간 = UTC + 9시간). 기상청이 실패하면(가끔 30초 뒤 504, 연결 끊김) 한 번 다시 부르고, 그래도 안 되면 6시간 안의 이전 결과를 줍니다.
 
 ### 크롤러 → 서버 (`POST /api/articles`)
 
