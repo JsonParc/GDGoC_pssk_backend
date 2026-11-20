@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
 
 from . import db, extract as extractor, kma
-from .guides import GUIDES, SOURCE as GUIDE_SOURCE
+from .guides import GUIDES
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -73,7 +73,9 @@ def get_db():
 
 def check_ingest_token(x_ingest_token: str | None = Header(None)):
     expected = os.getenv("INGEST_TOKEN")
-    if expected and not secrets.compare_digest(x_ingest_token or "", expected):
+    if not expected:  # 설정을 빠뜨린 채 배포돼도 아무나 쓰지 못하게 막음
+        raise HTTPException(503, "서버에 INGEST_TOKEN이 설정되지 않았습니다.")
+    if not secrets.compare_digest(x_ingest_token or "", expected):
         raise HTTPException(401, "X-Ingest-Token이 올바르지 않습니다.")
 
 
@@ -187,4 +189,4 @@ async def get_forecast(
 def get_guide(disaster_type: str):
     if disaster_type not in GUIDES:
         raise HTTPException(404, "행동요령이 없는 재난 종류입니다.")
-    return {"type": disaster_type, "steps": GUIDES[disaster_type], "source": GUIDE_SOURCE}
+    return {"type": disaster_type, **GUIDES[disaster_type]}

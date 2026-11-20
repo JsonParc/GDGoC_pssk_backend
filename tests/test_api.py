@@ -8,11 +8,14 @@ FLOOD = {"title": "부산 폭우로 도로 침수", "url": "https://news.example
 OTHER = {"title": "주가 상승 마감", "url": "https://news.example.com/2"}
 
 
+TOKEN = "test-token"
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.delenv("INGEST_TOKEN", raising=False)
-    return TestClient(app)
+    monkeypatch.setenv("INGEST_TOKEN", TOKEN)
+    return TestClient(app, headers={"X-Ingest-Token": TOKEN})
 
 
 def test_ingest_creates_disaster_with_source(client):
@@ -60,10 +63,16 @@ def test_filter_by_type_and_reject_unknown_type(client):
     assert client.get("/api/disasters?type=tsunami").status_code == 422
 
 
-def test_token_required_when_configured(client, monkeypatch):
-    monkeypatch.setenv("INGEST_TOKEN", "secret")
-    assert client.post("/api/articles", json=[FLOOD]).status_code == 401
-    assert client.post("/api/articles", json=[FLOOD], headers={"X-Ingest-Token": "secret"}).status_code == 200
+def test_ingest_rejects_missing_or_wrong_token(client):
+    bare = TestClient(app)
+    assert bare.post("/api/articles", json=[FLOOD]).status_code == 401
+    assert bare.post("/api/articles", json=[FLOOD], headers={"X-Ingest-Token": "wrong"}).status_code == 401
+    assert client.post("/api/articles", json=[FLOOD]).status_code == 200
+
+
+def test_ingest_closed_when_token_not_configured(client, monkeypatch):
+    monkeypatch.delenv("INGEST_TOKEN")
+    assert client.post("/api/articles", json=[FLOOD]).status_code == 503
 
 
 def test_batch_size_limit(client):
@@ -74,4 +83,5 @@ def test_batch_size_limit(client):
 def test_not_found(client):
     assert client.get("/api/disasters/999").status_code == 404
     assert client.get("/api/guides/tsunami").status_code == 404
-    assert client.get("/api/guides/flood").json()["steps"]
+    guide = client.get("/api/guides/flood").json()
+    assert guide["steps"] and guide["source"].startswith("https://")

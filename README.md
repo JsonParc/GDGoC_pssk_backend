@@ -16,12 +16,12 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 
 ## 환경 변수
 
-`.env`에 적거나 실행 전에 설정합니다. `.env`는 git에 올라가지 않습니다.
+`.env.example`을 `.env`로 복사해 값을 채우거나, 배포 환경의 환경 변수로 설정합니다. `.env`는 git에 올라가지 않습니다.
 
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
 | `KMA_API_KEY` | 없음 | 기상청 API허브 인증키. 없으면 `/api/warnings`, `/api/forecast`가 503 |
-| `INGEST_TOKEN` | 없음 | 설정하면 `POST /api/articles`에 `X-Ingest-Token` 헤더가 필요합니다 |
+| `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | 프론트엔드 주소(쉼표로 여러 개) |
 | `DB_PATH` | `data.db` | SQLite 파일 위치 |
 
@@ -40,7 +40,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 
 ### 크롤러 → 서버 (`POST /api/articles`)
 
-한 번 수집할 때마다 **모은 기사를 한 요청으로** 보내 주세요. 이미 받은 `url`은 다시 분석하지 않고 건너뜁니다.
+헤더에 `X-Ingest-Token: <INGEST_TOKEN 값>`을 넣고, 한 번 수집할 때마다 **모은 기사를 한 요청으로** 보내 주세요. 토큰 값은 서버 담당에게 따로(메신저 등) 받으세요. 코드나 git에 넣지 마세요. 이미 받은 `url`은 다시 분석하지 않고 건너뜁니다.
 
 ```json
 [
