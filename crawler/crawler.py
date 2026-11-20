@@ -1,20 +1,18 @@
 """뉴스 기사 크롤러 → 재난 데이터 API 서버(POST /api/articles)로 전송
 
-기사를 세 가지 방법으로 모아 한 요청으로 보냅니다.
-  [최근] 1) 지정한 목록 페이지(LIST_URLS)
-  [최근] 2) 언론사 뉴스 사이트맵(NEWS_SITEMAPS): 최근 2~3일 기사 중 제목에 TITLE_KEYWORDS가 있는 기사
-         → 원문 주소·본문까지 보냄. 하루 한 번 이상 실행하면 등록한 언론사의 최근 기사를 놓치지 않음
-  [과거] 3) 구글 뉴스 RSS 기간 검색: 서버의 재난 카드(GET /api/disasters)에서 위치·유형을 읽어
-         그 지역의 과거 재난·복구공사·방재 기사를 찾음 → 제목·언론사·날짜만 보냄 (본문 없음)
-  robots.txt에서 AI 사용(AI_AGENTS, 기본 Gemini용 Google-Extended)이 막힌 주소·언론사는 모두 제외합니다.
+기사를 두 가지 방법으로 모아 보냅니다 (한 요청에 MAX_BATCH개씩).
+  1) 지정한 목록 페이지(LIST_URLS)
+  2) 언론사 뉴스 사이트맵(NEWS_SITEMAPS): 최근 2~3일 기사 중 제목이 재난·기후 기사로 보이는 기사
+     (TITLE_KEYWORDS가 있고 TITLE_REJECT에 걸리지 않음)
+     → 원문 주소·본문까지 보냄. 하루 한 번 이상 실행하면 등록한 언론사의 최근 기사를 놓치지 않음
+  robots.txt에서 AI 사용(AI_AGENTS, 기본 Gemini용 Google-Extended)이 막힌 주소는 모두 제외합니다.
 
 실행 예)
-  python crawler/crawler.py                          # 위 세 가지를 모두 수집해서 전송
+  python crawler/crawler.py                          # 목록 페이지 + 사이트맵을 수집해서 전송
   python crawler/crawler.py --dry-run                # 서버로 보내지 않고 보낼 내용만 확인
-  python crawler/crawler.py --past "부산 침수"        # 과거 기사 검색어를 직접 지정 (재난 카드와 별개로)
-  python crawler/crawler.py --past-years 10          # 과거 몇 년까지 찾을지 (기본 5)
-  python crawler/crawler.py --no-lists --no-sitemaps --no-past   # 원하는 방법만 끄기
-  python crawler/crawler.py https://news.daum.net/climate   # 이 목록 페이지만 수집 (+ 사이트맵·과거)
+  python crawler/crawler.py --no-lists               # 사이트맵만 수집
+  python crawler/crawler.py --no-sitemaps            # 목록 페이지만 수집
+  python crawler/crawler.py https://news.daum.net/climate   # 이 목록 페이지만 수집 (+ 사이트맵)
 
 환경 변수
   API_URL       서버 주소 (기본: http://localhost:8001)
@@ -32,7 +30,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 import trafilatura
@@ -63,27 +61,34 @@ NEWS_SITEMAPS = {
 # 사이트맵 기사 중 제목에 이 단어가 하나라도 있는 기사만 엽니다.
 TITLE_KEYWORDS = (
     "폭우", "호우", "장마", "침수", "홍수", "범람", "태풍", "강풍", "풍랑", "해일",
-    "산불", "지진", "여진", "산사태", "땅꺼짐", "싱크홀",
+    "산불", "지진", "산사태", "땅꺼짐", "싱크홀",  # '여진'은 사람 이름(홍여진 등)에 자주 걸려 뺌
     "폭염", "열대야", "한파", "대설", "폭설", "가뭄", "주의보", "특보",
     "기후변화", "기후위기", "이상기후", "재난", "재해", "이재민",
 )
-# 키워드가 들어 있지만 재난과 무관한 단어 (제목에서 지운 뒤 키워드를 확인)
-TITLE_EXCLUDE = ("재해석",)
+# 키워드가 들어 있지만 재난과 무관한 단어: 제목에서 이 단어만 지운 뒤 키워드를 다시 확인
+#   예) "수능 위급재난문자 발송" → "재난"이 사라져 제외 / "대설 재난문자 울렸다" → "대설"이 남아 수집
+TITLE_EXCLUDE = (
+    "재해석", "지진희",               # 다른 단어 속 키워드 (배우 이름 등)
+    "재난문자", "재난 문자", "재난경보음", "재난경보",  # 수능 부정행위 적발용 재난문자처럼 재난이 아닌 경우가 많음
+    "중대재해", "산업재해", "국가적 재난",          # 산업 안전사고, 정치적 비유
+    "뉴스특보", "선거특보", "개표특보", "특보 방송",
+)
+# 이 표현이 있으면 재난 기사가 아니라고 보고 제목째 뺍니다.
+TITLE_REJECT = [
+    # 영화·방송·연예 (예: 영화 '폭설' 박스오피스 1위)
+    re.compile(r"박스오피스|예매율|극장가|개봉|관객|흥행|시청률|드라마|예능|앨범|컴백|콘서트|팬미팅|뮤지컬|게임쇼|지스타"),
+    re.compile(r"['‘\"“]폭설['’\"”]"),  # 따옴표로 감싼 '폭설'은 영화 제목으로 쓰인 경우 (날씨 기사는 따옴표 없이 씀)
+    # 수능 부정행위 적발용 재난문자·경보음 기사
+    re.compile(r"부정행위"),
+    # 증시·경제 (예: 증시는 '유동성 한파')
+    re.compile(r"증시|코스피|코스닥|주가|상장|IPO|공모주|환율|채권"),
+    # 비유로 쓰는 재난 단어 (예: 취업 한파, 인재 가뭄, 전세사기 주의보)
+    re.compile(r"(유동성|취업|고용|채용|투자|소비|수주|분양|거래|매출|경기|자금|인사|연봉)\s*한파"),
+    re.compile(r"(인재|인력|일자리|돈|자금|흥행|득점|골|우승|매물)\s*가뭄"),
+    re.compile(r"(사기|피싱|보이스피싱|스미싱|투자|전세|해킹|딥페이크|불법\S*)\s*주의보"),
+    re.compile(r"(인사|정치|정국|공천)\s*(태풍|지진|폭풍)"),
+]
 RECENT_DAYS = 3  # 사이트맵에서 최근 며칠 기사까지 볼지
-
-# ── [과거] 구글 뉴스 RSS 기간 검색 ──
-# 재난 유형(서버 DisasterIn.type)별로 '{위치} {검색어}'로 찾음: 과거 피해 + 복구공사·방재시설 기사
-PAST_QUERIES = {
-    "flood": ["침수", "홍수", "배수시설", "복구공사", "방재시설"],
-    "wildfire": ["산불", "산불 피해 복구", "산림 복원"],
-    "heatwave": ["폭염", "폭염 대책"],
-    "other": [],  # 유형이 정해지지 않은 재난은 과거 검색을 하지 않음
-}
-PAST_YEARS = 5         # 재난 발생일 이전 몇 년까지 찾을지
-PAST_TRIGGER_DAYS = 30  # 최근 며칠 안에 발생한 재난 카드만 과거 검색 (과거 기사로 만들어진 과거 카드가
-                        # 또 과거 검색을 부르는 연쇄를 막음. 날짜가 없는 카드는 최근 재난으로 봄)
-PAST_PER_QUERY = 20    # 검색어마다 보낼 과거 기사 수 (구글 뉴스 RSS는 최대 100건)
-GOOGLE_NEWS_RSS = "https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
 
 API_URL = os.getenv("API_URL", "http://localhost:8001")
 INGEST_TOKEN = os.getenv("INGEST_TOKEN")
@@ -98,8 +103,6 @@ MAX_CONTENT = 50_000
 BASE_DIR = Path(__file__).resolve().parent
 SENT_FILE = BASE_DIR / "sent_urls.txt"           # 처리한 기사 URL: 서버로 보냈거나 본문이 없어 제외 (다음 실행 때 다시 크롤링하지 않음)
 PENDING_FILE = BASE_DIR / "pending_articles.json"  # 전송 실패한 기사 (다음 실행 때 먼저 다시 보냄)
-PAST_DONE_FILE = BASE_DIR / "past_searched.txt"    # 과거 검색을 마친 '위치|유형' (같은 지역을 매번 다시 검색하지 않음)
-
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -237,19 +240,6 @@ def ai_blocked(url: str) -> str | None:
   return None
 
 
-def site_blocks_ai(site_url: str) -> bool:
-  """사이트 전체를 AI에 막았는지 (Disallow: / 이면서 허용 규칙이 하나도 없음)
-  기사 주소를 모르는 과거 기사(구글 뉴스)의 원래 언론사를 확인할 때 사용"""
-  groups = get_robots(site_url)
-  if groups is False:
-    return True
-  for agent in AI_AGENTS:
-    rules = agent_rules(groups, agent)
-    if (False, "/") in rules and not any(allow for allow, _ in rules):
-      return True
-  return False
-
-
 def filter_ai_allowed(urls: list[str], label: str = "") -> list[str]:
   """AI 사용이 제한된 주소를 빼고, 뺀 건수를 언론사별로 알려 줌"""
   allowed, blocked = [], defaultdict(int)
@@ -365,6 +355,10 @@ def read_sitemap(url: str, depth: int = 0) -> list[dict]:
 
 
 def title_matches(title: str) -> bool:
+  """제목이 재난·기후 기사로 보이는지: 다른 분야·비유 표현(TITLE_REJECT)이 없고,
+  무관한 단어(TITLE_EXCLUDE)를 지운 뒤에도 TITLE_KEYWORDS가 남아 있으면 True"""
+  if any(p.search(title) for p in TITLE_REJECT):
+    return False
   for word in TITLE_EXCLUDE:
     title = title.replace(word, "")
   return any(k in title for k in TITLE_KEYWORDS)
@@ -391,129 +385,6 @@ def find_recent_from_sitemaps(seen: set[str]) -> list[dict]:
           f"재난·기후 제목 {len(matched)}건 → 새 기사 {len(new)}건 → "
           f"AI 사용 허용 {len(allowed)}건" + (" (robots.txt AI 사용 제한)" if new and not allowed else ""))
   return targets
-
-
-# ───────────────────────── [과거] 구글 뉴스 RSS 기간 검색 ─────────────────────────
-
-def search_google_news(query: str, after: str, before: str, count: int) -> list[dict]:
-  """구글 뉴스 RSS 기간 검색 → 서버 형식 기사 목록 (본문 없음)
-  구글 뉴스는 원문 주소 대신 구글 중계 주소만 주므로 url은 그 주소, content는 None"""
-  q = f"{query} after:{after} before:{before}"
-  rss_url = GOOGLE_NEWS_RSS.format(q=quote(q))
-  reason = ai_blocked(rss_url)
-  if reason:  # 구글 뉴스 자체가 AI 사용을 막으면 과거 검색을 하지 않음
-    raise requests.RequestException(f"구글 뉴스 {reason}")
-  root = ET.fromstring(fetch_bytes(rss_url))
-  results = []
-  for item in root.iter("item"):
-    source_tag = item.find("source")
-    source = (source_tag.text or "").strip() if source_tag is not None else ""
-    site_url = source_tag.get("url", "") if source_tag is not None else ""
-    if site_url.startswith("http") and site_blocks_ai(site_url):
-      continue  # 원래 언론사가 사이트 전체의 AI 사용을 막음 (예: 경향신문, KBS)
-    title = clean_text(item.findtext("title") or "")
-    if source:  # "기사 제목 - 연합뉴스" → "기사 제목"
-      title = re.sub(rf"\s*-\s*{re.escape(source)}\s*$", "", title)
-    link = (item.findtext("link") or "").strip()
-    if title and link.startswith("http"):
-      results.append({
-          "title": title[:MAX_TITLE],
-          "url": link,
-          "source": (source or "Google 뉴스")[:MAX_SOURCE],
-          "published_at": to_date(item.findtext("pubDate")),
-          "content": None,
-      })
-  return results[:count]
-
-
-def fetch_disasters() -> list[dict]:
-  """서버의 재난 카드 전체 (GET /api/disasters, 100개씩)"""
-  items, offset = [], 0
-  while True:
-    resp = requests.get(f"{API_URL.rstrip('/')}/api/disasters",
-                        params={"limit": 100, "offset": offset}, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    items += data["items"]
-    offset += len(data["items"])
-    if not data["items"] or offset >= data["total"]:
-      return items
-
-
-def load_past_done() -> set[str]:
-  if not PAST_DONE_FILE.exists():
-    return set()
-  return {l.strip() for l in PAST_DONE_FILE.read_text(encoding="utf-8").splitlines() if l.strip()}
-
-
-def add_past_done(keys: list[str]) -> None:
-  with PAST_DONE_FILE.open("a", encoding="utf-8") as f:
-    f.writelines(k + "\n" for k in keys)
-
-
-def years_before(date: str, years: int) -> str:
-  d = datetime.strptime(date, "%Y-%m-%d")
-  try:
-    return d.replace(year=d.year - years).strftime("%Y-%m-%d")
-  except ValueError:  # 2월 29일
-    return d.replace(year=d.year - years, day=28).strftime("%Y-%m-%d")
-
-
-def find_past(manual_queries: list[str], years: int, seen: set[str], use_cards: bool) -> tuple[list[dict], list[str]]:
-  """과거 기사 찾기 → (보낼 기사, 검색을 마친 '위치|유형' 키)
-  1) 서버 재난 카드의 위치·유형으로 PAST_QUERIES 검색 (이미 검색한 지역은 건너뜀)
-  2) --past로 직접 넣은 검색어"""
-  today = datetime.now(KST).strftime("%Y-%m-%d")
-  jobs = []  # (설명, 검색어, after, before, 완료 키)
-
-  if use_cards:
-    try:
-      disasters = fetch_disasters()
-    except (requests.RequestException, KeyError, ValueError) as e:
-      print(f"  재난 카드를 불러오지 못해 카드 기반 과거 검색은 건너뜁니다 ({API_URL}): {e}")
-      disasters = []
-    done = load_past_done()
-    trigger_since = (datetime.now(KST) - timedelta(days=PAST_TRIGGER_DAYS)).strftime("%Y-%m-%d")
-    no_location = old = 0
-    for d in disasters:
-      location = (d.get("location") or "").strip()
-      words = PAST_QUERIES.get(d.get("type"), [])
-      if not location or not words:
-        no_location += not location
-        continue
-      if (to_date(d.get("date")) or today) < trigger_since:
-        old += 1  # 오래된 재난 카드(과거 기사로 만들어진 카드 등)는 과거 검색을 하지 않음
-        continue
-      key = f"{location}|{d['type']}"
-      if key in done:
-        continue
-      done.add(key)
-      before = to_date(d.get("date")) or today
-      after = years_before(before, years)
-      place = re.sub(r"^(대한민국|한국)\s+", "", location)  # Gemini 위치 "대한민국 부산" → 검색어 "부산"
-      jobs += [(f"카드 #{d['id']} {location}", f"{place} {w}", after, before, key) for w in words]
-    print(f"  재난 카드 {len(disasters)}개 (위치 없는 카드 {no_location}개, "
-          f"{PAST_TRIGGER_DAYS}일보다 오래된 카드 {old}개는 건너뜀)")
-
-  for q in manual_queries:
-    jobs.append(("직접 지정", q, years_before(today, years), today, None))
-
-  articles, done_keys = [], []
-  for label, query, after, before, key in jobs:
-    try:
-      found = search_google_news(query, after, before, PAST_PER_QUERY)
-    except (requests.RequestException, ET.ParseError) as e:
-      print(f"  [{label}] '{query}' 검색 실패: {e}")
-      continue
-    finally:
-      time.sleep(1)  # 구글 뉴스 요청 간 대기
-    new = [a for a in found if a["url"] not in seen]
-    seen.update(a["url"] for a in new)
-    articles += new
-    if key and key not in done_keys:
-      done_keys.append(key)
-    print(f"  [{label}] '{query}' ({after} ~ {before}): {len(found)}건 중 새 기사 {len(new)}건")
-  return articles, done_keys
 
 
 def get_source(soup: BeautifulSoup, url: str) -> str:
@@ -704,13 +575,8 @@ def collect_recent(list_urls: list[str], use_sitemaps: bool, seen: set[str]) -> 
 def main():
   parser = argparse.ArgumentParser(description="뉴스 기사를 수집해 재난 데이터 API 서버로 전송")
   parser.add_argument("urls", nargs="*", help="수집할 목록 페이지 주소 (생략하면 LIST_URLS 사용)")
-  parser.add_argument("--past", action="append", default=[],
-                      help='과거 기사 검색어 직접 지정 (예: --past "부산 침수", 여러 번 쓸 수 있음)')
-  parser.add_argument("--past-years", type=int, default=PAST_YEARS,
-                      help=f"과거 몇 년까지 찾을지 (기본 {PAST_YEARS})")
   parser.add_argument("--no-lists", action="store_true", help="목록 페이지(LIST_URLS)를 수집하지 않음")
   parser.add_argument("--no-sitemaps", action="store_true", help="뉴스 사이트맵을 수집하지 않음")
-  parser.add_argument("--no-past", action="store_true", help="재난 카드 기반 과거 기사 검색을 하지 않음")
   parser.add_argument("--dry-run", action="store_true", help="서버로 보내지 않고 보낼 내용만 출력")
   args = parser.parse_args()
 
@@ -728,27 +594,20 @@ def main():
     print(f"지난번에 보내지 못한 기사 {len(pending)}건을 함께 보냅니다.")
   seen = sent_urls | {a["url"] for a in pending}
 
-  # [최근] 목록 페이지 + 뉴스 사이트맵 (본문 포함)
+  # 목록 페이지 + 뉴스 사이트맵 (본문 포함)
   recent, excluded = collect_recent(list_urls, not args.no_sitemaps, seen)
 
-  # [과거] 지난 실행까지 만들어진 재난 카드의 지역 + --past 검색어 (제목·언론사·날짜만)
-  past, done_keys = [], []
-  if not args.no_past or args.past:
-    print(f"\n▶ 과거 기사 (구글 뉴스 RSS, 최근 {args.past_years}년)")
-    past, done_keys = find_past(args.past, args.past_years, seen, use_cards=not args.no_past)
-
-  # 모은 기사를 한 요청으로 전송 (README: 한 번 수집할 때마다 모은 기사를 한 요청으로)
-  articles = pending + recent + past
-  print(f"\n보낼 기사: {len(articles)}건 (미전송 {len(pending)} / 최근 {len(recent)} / 과거 {len(past)})")
+  # 모은 기사를 MAX_BATCH개씩 전송
+  articles = pending + recent
+  print(f"\n보낼 기사: {len(articles)}건 (미전송 {len(pending)} / 새 기사 {len(recent)})")
 
   if not args.dry_run:
-    add_sent_urls(excluded)    # 본문 없는 기사도 기록해서 다음 실행 때 다시 열지 않음
-    add_past_done(done_keys)   # 과거 검색을 마친 지역은 다음 실행 때 다시 검색하지 않음
+    add_sent_urls(excluded)  # 본문 없는 기사도 기록해서 다음 실행 때 다시 열지 않음
   if not articles:
     return
 
   if args.dry_run:
-    preview = [{**a, "content": (a["content"] or "")[:80] + "…"} for a in recent[:2]] + past[:3]
+    preview = [{**a, "content": (a["content"] or "")[:80] + "…"} for a in articles[:3]]
     print(json.dumps(preview, ensure_ascii=False, indent=2))
     print("--dry-run: 서버로 보내지 않았습니다.")
     return
