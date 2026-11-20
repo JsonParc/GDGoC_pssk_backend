@@ -3,3 +3,5 @@
 data.db
 __pycache__/
 .pytest_cache/
+crawler/sent_urls.txt
+crawler/pending_articles.json
