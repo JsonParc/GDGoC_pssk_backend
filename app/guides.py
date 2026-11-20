@@ -1,15 +1,16 @@
-"""재난별 행동지침 기본값. 서버가 처음 켜질 때 DB(guides 표)에 없는 항목만 넣는다.
+"""재난별 행동지침. 이 파일을 직접 고치고 서버를 다시 켜면 반영된다.
 
-DB에 들어간 뒤에는 PUT /api/guides/{type}으로 고친 내용이 우선이고, 여기 값은 다시 덮어쓰지 않는다.
-문구는 출처 원문 그대로다. 기상청 페이지는 행정안전부 국민행동요령(국민안전24) 요약본이다.
-steps가 빈 항목은 공식 문구를 찾지 못한 것으로, 직접 작성해야 한다.
-warning_code는 기상특보 종류 코드(kma.WARNING_TYPES)이고, 그 특보가 발효 중일 때 이 지침을 보여 준다.
+- 문구는 출처 원문 그대로다. 기상청 페이지는 행정안전부 국민행동요령(국민안전24) 요약본이다.
+- steps가 빈 항목은 공식 문구를 찾지 못한 것으로, 직접 작성해야 한다(needs_writing: true로 나감).
+- warning_code는 기상특보 종류 코드(kma.WARNING_TYPES)이고, 그 특보가 발효 중일 때 이 지침을 보여 준다.
+- type과 warning_code는 겹치면 안 된다(tests/test_guides.py가 확인).
+- 고칠 때는 따옴표("...")와 쉼표(,)를 지워지지 않게 주의한다. 고친 뒤 테스트로 확인: .venv\Scripts\python -m pytest tests/test_guides.py
 """
 
 KMA = "https://www.weather.go.kr/w/hazard/safety-guide"
 KMA_QUAKE = "https://www.weather.go.kr/w/earthquake-volcano/evacuation.do"
 
-DEFAULT_GUIDES = [
+GUIDES = [
     {
         "type": "flood", "warning_code": "R", "title": "호우특보 중 행동요령", "source": f"{KMA}.do",
         "steps": [
@@ -122,3 +123,10 @@ DEFAULT_GUIDES = [
     {"type": "stormsurge", "warning_code": "O", "title": "폭풍해일특보 중 행동요령", "source": None, "steps": []},
     {"type": "fog", "warning_code": "F", "title": "안개특보 중 행동요령", "source": None, "steps": []},
 ]
+
+GUIDE_BY_TYPE = {guide["type"]: guide for guide in GUIDES}
+GUIDE_TYPE_BY_WARNING = {guide["warning_code"]: guide["type"] for guide in GUIDES if guide["warning_code"]}
+
+
+def to_response(guide: dict) -> dict:
+    return {**guide, "needs_writing": not guide["steps"]}

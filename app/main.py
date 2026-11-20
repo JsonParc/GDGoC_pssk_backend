@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path as FilePath
-from typing import Annotated, Literal
+from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
-from . import db, extract as extractor, kma
+from . import db, extract as extractor, guides, kma
 
 load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
@@ -82,9 +82,6 @@ def _require_token(env_name: str, header_name: str, given: str | None) -> None:
 def check_ingest_token(x_ingest_token: str | None = Header(None)):
     _require_token("INGEST_TOKEN", "X-Ingest-Token", x_ingest_token)
 
-
-def check_admin_token(x_admin_token: str | None = Header(None)):
-    _require_token("ADMIN_TOKEN", "X-Admin-Token", x_admin_token)
 
 
 def save_disaster(conn: sqlite3.Connection, d: DisasterIn) -> int:
@@ -197,23 +194,21 @@ def get_http(request: Request) -> httpx.AsyncClient:
     return request.app.state.http
 
 
-async def active_warnings_with_guides(http: httpx.AsyncClient, conn: sqlite3.Connection) -> list[dict]:
+async def active_warnings_with_guides(http: httpx.AsyncClient) -> list[dict]:
     try:
         warnings = await kma.fetch_warnings(http)
     except kma.KmaError as e:
         raise HTTPException(e.status, e.message) from None
-    guide_of = dict(conn.execute("SELECT warning_code, type FROM guides WHERE warning_code IS NOT NULL").fetchall())
-    return [{**w, "guide_type": guide_of.get(w["type"])} for w in warnings]
+    return [{**w, "guide_type": guides.GUIDE_TYPE_BY_WARNING.get(w["type"])} for w in warnings]
 
 
 @app.get("/api/warnings")
 async def list_warnings(
     type: str | None = Query(None, pattern="^[A-Z]$", description="특보 종류 코드 (H 폭염, R 호우, D 건조 등)"),
     http: httpx.AsyncClient = Depends(get_http),
-    conn: sqlite3.Connection = Depends(get_db),
 ):
     """지금 발효 중인 기상특보 (기상청 특보현황). guide_type은 GET /api/guides/{guide_type}로 볼 행동지침."""
-    items = await active_warnings_with_guides(http, conn)
+    items = await active_warnings_with_guides(http)
     if type:
         items = [w for w in items if w["type"] == type]
     return {"items": items, "total": len(items)}
@@ -289,18 +284,10 @@ async def get_typhoon_track(
     return {"year": year, "seq": seq, "track": track, "total": len(track)}
 
 
-class GuideIn(BaseModel):
-    title: str = Field(min_length=1, max_length=100)
-    steps: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(max_length=30)
-    source: HttpUrl | None = None
-    warning_code: str | None = Field(None, pattern="^[A-Z]$", description="이 특보가 발효 중일 때 보여 줌")
-
-
 @app.get("/api/guides")
-def list_guides(conn: sqlite3.Connection = Depends(get_db)):
-    """모든 재난 행동지침. needs_writing=true는 공식 문구가 없어 직접 작성해야 하는 항목."""
-    rows = conn.execute("SELECT * FROM guides ORDER BY type").fetchall()
-    items = [db.row_to_guide(r) for r in rows]
+def list_guides():
+    """모든 재난 행동지침 (app/guides.py). needs_writing=true는 공식 문구가 없어 직접 작성해야 하는 항목."""
+    items = [guides.to_response(g) for g in guides.GUIDES]
     return {"items": items, "total": len(items)}
 
 
@@ -308,45 +295,22 @@ def list_guides(conn: sqlite3.Connection = Depends(get_db)):
 async def list_active_guides(
     region: str | None = Query(None, max_length=50, description="지역 이름 일부 (예: 강원, 태백). 비우면 전국"),
     http: httpx.AsyncClient = Depends(get_http),
-    conn: sqlite3.Connection = Depends(get_db),
 ):
     """지금 특보가 발효 중인 재난의 행동지침. 특보가 내려진 때부터 해제될 때까지만 나옴."""
-    warnings = await active_warnings_with_guides(http, conn)
+    warnings = await active_warnings_with_guides(http)
     if region:
         warnings = [w for w in warnings if region in (w["region"] or "") or region in (w["region_parent"] or "")]
     grouped: dict[str, list[dict]] = {}
     for w in warnings:
         if w["guide_type"]:
             grouped.setdefault(w["guide_type"], []).append(w)
-    items = []
-    for guide_type, ws in grouped.items():
-        row = conn.execute("SELECT * FROM guides WHERE type = ?", (guide_type,)).fetchone()
-        items.append({**db.row_to_guide(row), "warnings": ws})
+    items = [{**guides.to_response(guides.GUIDE_BY_TYPE[t]), "warnings": ws} for t, ws in grouped.items()]
     return {"items": items, "total": len(items)}
 
 
 @app.get("/api/guides/{disaster_type}")
-def get_guide(disaster_type: str, conn: sqlite3.Connection = Depends(get_db)):
-    row = conn.execute("SELECT * FROM guides WHERE type = ?", (disaster_type,)).fetchone()
-    if row is None:
+def get_guide(disaster_type: str):
+    guide = guides.GUIDE_BY_TYPE.get(disaster_type)
+    if guide is None:
         raise HTTPException(404, "행동지침이 없는 재난 종류입니다.")
-    return db.row_to_guide(row)
-
-
-@app.put("/api/guides/{disaster_type}", dependencies=[Depends(check_admin_token)])
-def put_guide(
-    guide: GuideIn,
-    disaster_type: str = Path(pattern="^[a-z_]{2,30}$"),
-    conn: sqlite3.Connection = Depends(get_db),
-):
-    """행동지침 쓰기·고치기 (X-Admin-Token 필요). 없는 종류면 새로 만듭니다."""
-    conn.execute(
-        "INSERT INTO guides (type, warning_code, title, steps, source, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, datetime('now'))"
-        " ON CONFLICT(type) DO UPDATE SET warning_code = excluded.warning_code, title = excluded.title,"
-        " steps = excluded.steps, source = excluded.source, updated_at = excluded.updated_at",
-        (disaster_type, guide.warning_code, guide.title, json.dumps(guide.steps, ensure_ascii=False),
-         str(guide.source) if guide.source else None),
-    )
-    conn.commit()
-    return get_guide(disaster_type, conn)
+    return guides.to_response(guide)

@@ -23,7 +23,6 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | `KMA_API_KEY` | 없음 | 기상청 API허브 인증키. 없으면 `/api/warnings`, `/api/forecast`가 503 |
 | `GEMINI_API_KEY` | 없음 | Google AI Studio 키. 없으면 기사 분석을 키워드 규칙으로 대신함 |
 | `GEMINI_MODELS` | `gemini-3.5-flash,gemini-3.5-flash-lite` | 쓸 모델 순서(앞 모델이 붐비면 다음 모델) |
-| `ADMIN_TOKEN` | 없음 | 행동지침 고치기(`PUT /api/guides/{type}`)에 `X-Admin-Token` 헤더로 보내는 값. 없으면 고치기 503 |
 | `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | 프론트엔드 주소(쉼표로 여러 개) |
 | `DB_PATH` | `data.db` | SQLite 파일 위치 |
@@ -38,7 +37,7 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | GET | `/api/guides` | 재난별 행동지침 전체 (호우·태풍·대설·한파·폭염·강풍·풍랑·황사·지진해일·지진·산불·건조·폭풍해일·안개). `needs_writing: true`는 공식 문구가 없어 직접 작성 필요 |
 | GET | `/api/guides/active?region=강원` | **지금 특보가 발효 중인** 재난의 행동지침과 해당 특보 지역. 특보가 해제되면 빠짐 |
 | GET | `/api/guides/{type}` | 재난 하나의 행동지침 |
-| PUT | `/api/guides/{type}` | 행동지침 쓰기·고치기 (`X-Admin-Token` 필요). 고친 내용은 서버를 다시 켜도 유지 |
+| (고치기) | `app/guides.py` | 행동지침 문구는 이 파일을 직접 고치고 서버를 다시 켜면 반영됩니다. 고친 뒤 `.venv\Scripts\python -m pytest tests/test_guides.py`로 확인 |
 | GET | `/api/warnings?type=H` | 지금 발효 중인 기상특보 (특보현황 API). H 폭염, R 호우, D 건조, C 한파, S 대설, W 강풍 … `end_notice`는 기상청 해제 예고, `guide_type`은 볼 행동지침 |
 | GET | `/api/forecast?lat=37.34&lon=126.73` | 위치의 **예보** (단기예보, 1시간 간격 약 3일). TMP 기온, PCP 강수량, POP 강수확률, REH 습도 … |
 | GET | `/api/current?lat=37.34&lon=126.73` | 위치의 **지금 실제 날씨** (초단기실황, 매시 관측). T1H 기온, RN1 1시간 강수량, REH 습도, WSD 풍속 … |
