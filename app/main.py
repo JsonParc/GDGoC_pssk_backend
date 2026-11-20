@@ -10,11 +10,11 @@ from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl, ValidationError
 
-from . import db, extract as extractor, frontend, guides, kma, map_effect
+from . import db, extract as extractor, frontend, guides, kma, map_effect, naver, regions
 
 load_dotenv(FilePath(__file__).resolve().parent.parent / ".env")
 
@@ -24,8 +24,16 @@ DisasterType = Literal[guides.DISASTER_TYPES]  # 행동지침 종류 + other
 MAX_BATCH = 500
 
 
+def db_path() -> str:
+    return os.getenv("DB_PATH", db.DEFAULT_PATH)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    conn = db.connect(db_path())
+    if stale := regions.recover_stale_jobs(conn):
+        log.warning("재시작으로 끊긴 지역 분석 %s건을 실패로 표시했습니다.", stale)
+    conn.close()
     async with httpx.AsyncClient() as client:
         app.state.http = client
         yield
@@ -64,7 +72,7 @@ class DisasterIn(BaseModel):
 
 
 def get_db():
-    conn = db.connect(os.getenv("DB_PATH", db.DEFAULT_PATH))
+    conn = db.connect(db_path())
     try:
         yield conn
     finally:
@@ -369,6 +377,112 @@ def get_guide(
     except KeyError:
         names = ", ".join(guide.get("levels", {}))
         raise HTTPException(404, f"없는 단계입니다. 가능한 단계: {names}") from None
+
+
+# ───────── 지역 변화 분석 (온디맨드) ─────────
+
+RATE_LIMIT = (5, 600)  # 같은 사용자(IP)는 10분에 5번까지 분석 요청
+_recent_requests: dict[str, list[float]] = {}
+
+
+class RegionAnalyzeIn(BaseModel):
+    region_name: str = Field(min_length=1, max_length=50)
+    latitude: float
+    longitude: float
+    radius_km: float = 5
+    disaster_type: Literal["flood"] = "flood"  # MVP는 홍수만
+    force_refresh: bool = False
+
+
+def check_rate_limit(request: Request) -> None:
+    # shortcut: 서버 메모리 기준이라 재시작하면 초기화됨, 서버를 여러 대로 늘리면 DB·Redis로 옮김
+    forwarded = request.headers.get("x-forwarded-for", "")  # Render는 프록시 뒤라 실제 IP가 이 헤더에 옴
+    client = forwarded.split(",")[0].strip() or (request.client.host if request.client else "?")
+    count, seconds = RATE_LIMIT
+    t = datetime.now().timestamp()
+    recent = [s for s in _recent_requests.get(client, []) if t - s < seconds]
+    if len(recent) >= count:
+        raise HTTPException(429, f"분석 요청이 너무 많습니다. {seconds // 60}분 뒤 다시 시도해 주세요.")
+    _recent_requests[client] = [*recent, t]
+
+
+@app.post("/api/regions/analyze", status_code=202)
+def analyze_region(
+    body: RegionAnalyzeIn,
+    request: Request,
+    background: BackgroundTasks,
+    conn: sqlite3.Connection = Depends(get_db),
+    http: httpx.AsyncClient = Depends(get_http),
+):
+    """선택한 지역의 과거·현재 뉴스를 그때 검색·분석. 캐시가 있으면 바로 결과, 없으면 job_id (GET /api/analysis/{job_id})"""
+    if not (KOREA_LAT[0] <= body.latitude <= KOREA_LAT[1] and KOREA_LON[0] <= body.longitude <= KOREA_LON[1]):
+        raise HTTPException(400, "대한민국 안의 좌표가 아닙니다. 지도에서 위치를 다시 선택해 주세요. (확인 필요)")
+    if not 0.5 <= body.radius_km <= 30:
+        raise HTTPException(400, "radius_km는 0.5~30 사이여야 합니다.")
+
+    key = regions.region_key(body.region_name)
+    hit = regions.cached(conn, key, body.disaster_type, body.force_refresh)
+    if hit:
+        return {"job_id": hit["job_id"], "status": "completed", "region_id": hit["region_id"], "cached": True,
+                "generated_at": hit["generated_at"], "result": regions.analysis_result(conn, hit["region_id"], body.disaster_type)}
+
+    region_id = regions.upsert_region(conn, key, body.latitude, body.longitude, body.radius_km)
+    conn.commit()
+    running = regions.active_job(conn, region_id, body.disaster_type)
+    if running:  # 같은 지역 분석이 이미 진행 중이면 그 작업을 알려 줌 (중복 요청 합치기)
+        return {"job_id": running["id"], "status": running["status"], "region_id": region_id, "cached": False}
+
+    if not naver.configured():
+        raise HTTPException(503, "뉴스 검색이 설정되지 않아 새 지역을 분석할 수 없습니다.")
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(503, "AI 분석(GEMINI_API_KEY)이 설정되지 않아 새 지역을 분석할 수 없습니다.")
+    if regions.active_job_count(conn) >= regions.MAX_ACTIVE_JOBS:
+        raise HTTPException(429, "지금 분석 중인 지역이 많습니다. 잠시 후 다시 시도해 주세요.")
+    check_rate_limit(request)
+
+    job_id = regions.create_job(conn, region_id, body.disaster_type)
+    background.add_task(regions.run_job, job_id, db_path(), http)
+    return {"job_id": job_id, "status": "queued", "region_id": region_id, "cached": False}
+
+
+@app.get("/api/analysis/{job_id}")
+def get_analysis(job_id: str = Path(max_length=64), conn: sqlite3.Connection = Depends(get_db)):
+    """분석 진행 상태. 완료되면 result에 타임라인(changes)·시나리오·출처. 실패하면 error에 다시 시도 안내"""
+    job = conn.execute("SELECT * FROM analysis_jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(404, "분석 작업을 찾을 수 없습니다. 서버가 초기화됐다면 다시 요청해 주세요.")
+    done = job["status"] == "completed"
+    return {"job_id": job["id"], "region_id": job["region_id"], "status": job["status"], "stage": job["stage"],
+            "progress": job["progress"], "error": job["error_message"], "updated_at": job["updated_at"],
+            "result": regions.analysis_result(conn, job["region_id"], job["disaster_type"]) if done else None}
+
+
+def _region_or_404(conn: sqlite3.Connection, region_id: int) -> dict:
+    region = regions.get_region(conn, region_id)
+    if region is None:
+        raise HTTPException(404, "분석한 적 없는 지역입니다.")
+    return region
+
+
+@app.get("/api/regions/{region_id}/timeline")
+def get_region_timeline(region_id: int, disaster_type: Literal["flood"] = "flood",
+                        conn: sqlite3.Connection = Depends(get_db)):
+    """날짜순 도시 변화. evidence_status: verified(근거 문구 확인) / inferred(근거 문구 확인 안 됨)"""
+    region = _region_or_404(conn, region_id)
+    changes = regions.load_changes(conn, region_id, disaster_type)
+    return {"region": region, "changes": changes, "notice": regions.NOTICE,
+            "empty_message": None if changes else regions.EMPTY}
+
+
+@app.get("/api/regions/{region_id}/scenarios")
+def get_region_scenarios(region_id: int, disaster_type: Literal["flood"] = "flood",
+                         conn: sqlite3.Connection = Depends(get_db)):
+    """같은 비·시간에서 배수 능력만 바꾼 전·후. before/after를 koreaDisaster.set(type, params, position)에 넣음"""
+    _region_or_404(conn, region_id)
+    result = regions.analysis_result(conn, region_id, disaster_type)
+    if result["scenario"] is None:
+        raise HTTPException(404, "아직 분석이 끝나지 않은 지역입니다.")
+    return result["scenario"]
 
 
 # 프론트 화면 (반드시 맨 끝: 위의 API 주소가 먼저 잡히고 나머지 주소만 프론트 파일로 감)

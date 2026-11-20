@@ -120,11 +120,19 @@ def _format_articles(articles) -> str:
 
 
 def _call_gemini(articles, key: str) -> list[dict]:
+    reply = call_gemini(f"{PROMPT}\n기사 목록:\n{_format_articles(articles)}", RESPONSE_SCHEMA, key)
+    if not isinstance(reply.get("disasters"), list):
+        raise GeminiError("Gemini 응답 형식이 예상과 다름: disasters 없음")
+    return reply["disasters"]
+
+
+def call_gemini(text: str, schema: dict, key: str) -> dict:
+    """JSON 형식(schema)으로 답을 받음. 모든 모델 실패·형식 오류는 GeminiError"""
     body = {
-        "contents": [{"role": "user", "parts": [{"text": f"{PROMPT}\n기사 목록:\n{_format_articles(articles)}"}]}],
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": RESPONSE_SCHEMA,
+            "responseSchema": schema,
             "temperature": 0.2,
         },
     }
@@ -144,7 +152,7 @@ def _call_gemini(articles, key: str) -> list[dict]:
         raise GeminiError(f"Gemini({model}) 응답 {res.status_code}: {res.text[:200]}")
     try:
         text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)["disasters"]
+        return json.loads(text)
     except (KeyError, IndexError, ValueError) as e:
         raise GeminiError(f"Gemini 응답 형식이 예상과 다름: {type(e).__name__}") from None
 

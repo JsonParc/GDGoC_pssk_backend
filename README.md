@@ -26,7 +26,9 @@ API 문서와 직접 호출해 보기: http://localhost:8001/docs
 | `INGEST_TOKEN` | 없음 | **필수.** 크롤러는 `POST /api/articles`에 `X-Ingest-Token` 헤더로 이 값을 보냅니다. 설정하지 않으면 기사를 받지 않습니다(503) |
 | `FRONTEND_DIR` | 옆 폴더 `../GDGoC_TUK_pssk` | 프론트(뷰어 저장소) 폴더. 있으면 이 서버가 프론트 화면도 같이 보냄(아래 '서버 하나로 운영') |
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | 프론트엔드 주소(쉼표로 여러 개) |
-| `DB_PATH` | `data.db` | SQLite 파일 위치 |
+| `DB_PATH` | `data.db` | SQLite 파일 위치. **Render는 재배포·재시작 때 파일이 지워지므로 디스크(예: `/var/data`)를 붙이고 `/var/data/data.db`로 지정** |
+| `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | 없음 | 네이버 뉴스 검색 API 키(지역 변화 분석용). 없으면 새 지역 분석이 503 (이미 분석한 지역의 캐시는 보임) |
+| `REGION_CACHE_HOURS` | `24` | 지역 분석 결과를 다시 쓰는 시간 |
 
 ## API
 
@@ -138,6 +140,33 @@ if (e.supported) koreaDisaster.set(e.type, e.params, e.position);
 - `position`은 카드 좌표(Gemini가 지역 이름으로 추정한 지역 중심)
 - `sources`: `article` 기사 값, `derived` 기사 값으로 계산(총량 ÷ 지속 시간), `kma_current` 기상청 지금 날씨(카드 날짜가 오늘·어제이고 한국일 때 빈 값만)
 - 목록(`/api/disasters`)에는 `map_effect_supported`·`map_effect_type`만 (기상청 호출 없음)
+
+### 지역 변화 분석 (온디맨드, `app/regions.py` · `app/region_extract.py` · `app/naver.py`)
+
+사용자가 지도에서 고른 지역만 **그때** 뉴스를 검색·분석합니다. 전국을 미리 모으지 않습니다. MVP는 **홍수 + 배수시설 전·후 비교**입니다.
+
+| 메서드 | 주소 | 설명 |
+| --- | --- | --- |
+| POST | `/api/regions/analyze` | `{"region_name":"서울특별시 강남구","latitude":37.50,"longitude":127.03,"radius_km":5,"disaster_type":"flood","force_refresh":false}` → 캐시가 있으면 `{"cached":true,"result":{…}}`, 없으면 202 `{"job_id","status":"queued","region_id","cached":false}`. 같은 지역이 분석 중이면 그 `job_id`를 돌려줌 |
+| GET | `/api/analysis/{job_id}` | `status`(queued·running·completed·failed), `stage`(news_search·extraction·timeline·scenario·done), `progress` 0~100, `error`(실패 시 다시 시도 안내), 완료 시 `result`(`changes` 타임라인, `scenario`, `notice`, 자료가 없으면 `empty_message: "확인된 자료 없음"`) |
+| GET | `/api/regions/{region_id}/timeline` | 날짜순 변화. 항목마다 `status`(occurred 피해·planned 계획·under_construction 착공·completed 준공·unknown 확인불가), `change_type`, 시설 이름, `metrics`(기사 수치), `sources`(제목·URL·보도일·근거 문구), `evidence_status`, 기사끼리 상태가 다르면 `conflicts` |
+| GET | `/api/regions/{region_id}/scenarios` | 같은 비·시간·위치에서 `drain`(배수 능력 mm/h)만 바꾼 `before`·`after`. 프론트는 `koreaDisaster.set(before.type, before.params, position)` ↔ `after`로 전환 |
+
+오류: 400 대한민국 밖 좌표·반경 0.5~30km 밖, 429 요청이 많음(같은 IP 10분에 5번, 대기 작업 6개), 503 뉴스 검색 키·Gemini 키 없음. 검색 한도 초과·시간 초과(240초)·서버 재시작은 작업을 `failed`로 바꾸고 `error`에 다시 시도 안내를 넣습니다(무한 대기 없음).
+
+**만들어 내지 않기 위한 규칙 (`region_extract.py`)**
+- 분석 자료는 **네이버 뉴스 검색 API가 준 제목·요약뿐**입니다. 기사 본문을 크롤링하거나 저장하지 않습니다. 저장: 제목·보도일·매체(도메인)·URL·검색 요약(`source_documents`).
+- Gemini가 낸 근거 문구(`evidence_quote`)가 그 기사 제목·요약에 실제로 있으면 `verified`, 없으면 `inferred`.
+- 수치는 인용한 기사 글에 그 숫자가 있을 때만 남깁니다.
+- `completed`(준공)는 verified 근거 문구에 준공·완공·완료·가동·개통·마무리가 있고 날짜가 미래가 아닐 때만. 아니면 `unknown`(확인불가).
+- 같은 시설(종류+이름)·같은 날 같은 피해는 하나로 합치고, 이전 분석 때 모은 같은 지역 근거도 함께 다시 분석합니다(최신 기사만으로 과거를 덮어쓰지 않음).
+- 근거 문서 검색은 SQLite FTS5(trigram, 3글자 이상)이고, FTS5가 없거나 2글자 지역 이름이면 LIKE 검색으로 대신합니다.
+
+**전·후 시나리오 값의 출처(`param_evidence`)**: `article`(기사 수치), `derived`(누적 강수량 ÷ 지속 시간), `assumed`(시연용 가정값 rain 80·hours 12·drain 40→60, 실제 성능 아님). `data_quality`는 evidence·partial·illustrative. 준공이 확인된 배수시설이 없으면 `comparison_available: false`, `reason`에 "확인된 자료 없음". 실제 침수 예측이 아니라 **기사 근거 + 가정 기반 비교**입니다.
+
+**검색 제공자 한계 (네이버 뉴스 검색 API)**: 무료, 하루 25,000회(분석 한 번에 검색 7회). 검색어마다 관련도순 10건만 받아서 오래된 기사는 빠질 수 있고, 날짜 범위 지정이 안 됩니다. 요약은 기사 앞부분 한두 문장이라 준공 여부·수치가 요약에 없으면 놓칩니다. 언론사 이름은 주지 않아 URL 도메인으로 표시합니다. 키 발급: [네이버 개발자센터](https://developers.naver.com/apps/#/register) → 애플리케이션 등록 → 사용 API '검색'.
+
+**운영**: 작업은 응답 뒤 서버 안에서 돌고(동시 2개), 결과는 24시간 캐시합니다. 새로고침(`force_refresh`)도 10분 안에는 캐시를 줍니다. 요청 제한은 서버 메모리 기준이라 재시작하면 초기화됩니다.
 
 ### Gemini 분석 (`app/extract.py`)
 
