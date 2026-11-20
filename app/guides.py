@@ -28,17 +28,23 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "기상 상황을 수시로 확인하고 침수 위험 지역과 하천 주변 접근을 자제하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "저지대와 지하공간의 침수에 대비하고, 외출 시 하천이나 계곡 주변을 피하세요.",
+                ],
             },
             "경보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "침수 위험 지역에서 즉시 대피하고, 지하차도와 하천 주변에는 절대 접근하지 마세요.",
+                ],
             },
         },
     },
@@ -55,52 +61,68 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "태풍의 이동 경로를 확인하고 창문과 외부 시설물을 미리 점검하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "외출을 자제하고 강풍과 집중호우에 대비해 안전한 실내에 머무르세요.",
+                ],
             },
             "경보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "외출을 금지하고 침수 및 강풍 위험 지역 주민은 안전한 장소로 대피하세요.",
+                ],
             },
             "강도 1": {
                 "criteria": [
                     "최대풍속 17m/s(61km/h, 34kt) 이상 ~ 25m/s(90km/h, 48kt) 미만",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
-                "steps": [],
+                "steps": [
+                    "기상정보를 확인하고 외부 시설물과 주변 위험 요소를 점검하세요.",
+                ],
             },
             "강도 2": {
                 "criteria": [
                     "최대풍속 25m/s(90km/h, 48kt) 이상 ~ 33m/s(119km/h, 64kt) 미만",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
-                "steps": [],
+                "steps": [
+                    "강풍과 집중호우에 대비하고 불필요한 외출을 자제하세요.",
+                ],
             },
             "강도 3": {
                 "criteria": [
                     "최대풍속 33m/s(119km/h, 64kt) 이상 ~ 44m/s(158km/h, 85kt) 미만",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
-                "steps": [],
+                "steps": [
+                    "야외활동을 중단하고 강풍에 의한 낙하물과 시설물 파손에 주의하세요.",
+                ],
             },
             "강도 4": {
                 "criteria": [
                     "최대풍속 44m/s(158km/h, 85kt) 이상 ~ 54m/s(194km/h, 105kt) 미만",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
-                "steps": [],
+                "steps": [
+                    "외출을 삼가고 위험 지역 주민은 안전한 대피 장소로 이동하세요.",
+                ],
             },
             "강도 5": {
                 "criteria": [
                     "최대풍속 54m/s(194km/h, 105kt) 이상",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/typhoon/basic/info3.do",
-                "steps": [],
+                "steps": [
+                    "즉시 안전한 실내나 대피 장소로 이동하고 재난 당국의 안내에 따라 행동하세요.",
+                ],
             },
         },
     },
@@ -116,17 +138,23 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "기상정보를 확인하고 제설도구와 방한용품을 미리 준비하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "눈길과 빙판길 보행에 주의하고 차량 운행 시 감속 및 안전거리를 확보하세요.",
+                ],
             },
             "경보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "불필요한 외출과 운전을 자제하고 폭설로 인한 시설물 붕괴 위험에 주의하세요.",
+                ],
             },
         },
     },
@@ -143,7 +171,9 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "방한용품을 준비하고 수도관 동파와 난방시설 상태를 미리 점검하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [
@@ -152,7 +182,9 @@ GUIDES = [
                     "아침 최저기온 -12℃ 이하가 2일 이상 지속될 것으로 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/coldwave.do",
-                "steps": [],
+                "steps": [
+                    "외출 시 보온에 신경 쓰고 장시간 야외활동을 자제하세요.",
+                ],
             },
             "경보": {
                 "criteria": [
@@ -161,7 +193,9 @@ GUIDES = [
                     "아침 최저기온 -15℃ 이하가 2일 이상 지속될 것으로 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/coldwave.do",
-                "steps": [],
+                "steps": [
+                    "야외활동을 최소화하고 저체온증과 동상에 주의하며 실내 보온을 유지하세요.",
+                ],
             },
         },
     },
@@ -178,21 +212,27 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "폭염에 대비해 충분한 식수와 냉방용품을 준비하고 야외활동 시간을 조정하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [
                     "일 최고 체감온도 33℃ 이상이 2일 이상 지속될 것으로 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/heatwave.do",
-                "steps": [],
+                "steps": [
+                    "가장 더운 시간대의 야외활동을 줄이고 충분한 수분을 섭취하세요.",
+                ],
             },
             "경보": {
                 "criteria": [
                     "일 최고 체감온도 35℃ 이상이 2일 이상 지속될 것으로 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/heatwave.do",
-                "steps": [],
+                "steps": [
+                    "야외작업과 격렬한 활동을 중단하고 시원한 실내에서 휴식을 취하세요.",
+                ],
             },
             "중대경보": {
                 "criteria": [
@@ -223,21 +263,27 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "창문과 간판 등 외부 시설물을 점검하고 강풍에 대비하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [
                     "육상에서 풍속 14m/s(50.4km/h)이상 또는 순간풍속 20m/s(72km/h)이상, 다만 산지는 풍속 17m/s(61.2km/h)이상 또는 순간풍속 25m/s(90km/h)이상이 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/strong-wind.do",
-                "steps": [],
+                "steps": [
+                    "간판과 낙하물에 주의하고 가급적 외출을 자제하세요.",
+                ],
             },
             "경보": {
                 "criteria": [
                     "육상에서 풍속 21m/s(75.6km/h) 이상 또는 순간풍속 26m/s(93.6km/h) 이상, 다만 산지는 풍속 24m/s(86.4km/h)이상 또는 순간풍속 30m/s(108km/h)이상이 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/strong-wind.do",
-                "steps": [],
+                "steps": [
+                    "외출을 삼가고 창문에서 떨어져 안전한 실내 공간에 머무르세요.",
+                ],
             },
         },
     },
@@ -254,21 +300,27 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해상 기상정보를 확인하고 어선과 선박의 안전 상태를 점검하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [
                     "해상에서 풍속 50.4km/h(14m/s) 이상이 3시간 이상 지속되거나 유의파고가 3m 이상 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/wind-wave.do",
-                "steps": [],
+                "steps": [
+                    "해안가 접근과 해상 활동을 자제하고 선박은 안전한 곳에 대피시키세요.",
+                ],
             },
             "경보": {
                 "criteria": [
                     "해상에서 풍속 75.6km/h(21m/s) 이상이 3시간 이상 지속되거나 유의파고가 5m 이상 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/wind-wave.do",
-                "steps": [],
+                "steps": [
+                    "선박 운항을 중단하고 해안가와 방파제 주변에 접근하지 마세요.",
+                ],
             },
         },
     },
@@ -284,19 +336,25 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "황사 발생에 대비해 마스크를 준비하고 실내 공기 관리에 신경 쓰세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "외출을 자제하고 외출 시 보건용 마스크를 착용하며 귀가 후 손과 얼굴을 씻으세요.",
+                ],
             },
             "경보": {
                 "criteria": [
                     "황사로 인해 1시간 평균 미세먼지(PM-10) 농도 800㎍/㎥ 이상이 2시간 이상 지속될 것으로 예상될 때",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/hazard/safety-guide/asiandust.do",
-                "steps": [],
+                "steps": [
+                    "불필요한 외출을 삼가고 창문을 닫아 실내 유입을 최소화하세요.",
+                ],
             },
         },
     },
@@ -311,17 +369,23 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해안 지역의 지진해일 정보를 확인하고 대피 경로와 고지대 위치를 미리 파악하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해안가 접근과 해수욕을 중단하고 안내에 따라 안전한 곳으로 이동하세요.",
+                ],
             },
             "경보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "즉시 해안에서 멀리 떨어진 높은 곳으로 대피하고 재난 안내가 있을 때까지 돌아오지 마세요.",
+                ],
             },
         },
     },
@@ -340,84 +404,108 @@ GUIDES = [
                     "대부분 사람들은 느낄 수 없으나, 지진계에는 기록된다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "대부분 느끼지 못하는 수준이므로 평소와 같이 생활하되 지진정보를 확인하세요.",
+                ],
             },
             "진도 Ⅱ": {
                 "criteria": [
                     "조용한 상태나 건물 위층에 있는 소수의 사람만 느낀다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "민감한 사람만 흔들림을 느낄 수 있으므로 침착하게 주변 상황을 살피세요.",
+                ],
             },
             "진도 Ⅲ": {
                 "criteria": [
                     "실내, 특히 건물 위층에 있는 사람이 현저하게 느끼며, 정지하고 있는 차가 약간 흔들린다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "실내에서 흔들림을 느낄 수 있으므로 떨어질 수 있는 물건에 주의하세요.",
+                ],
             },
             "진도 Ⅳ": {
                 "criteria": [
                     "실내에서 많은 사람이 느끼고, 밤에는 잠에서 깨기도 하며, 그릇과 창문 등이 흔들린다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "창문과 유리 주변에서 떨어지고, 흔들리는 물건에 부딪히지 않도록 주의하세요.",
+                ],
             },
             "진도 Ⅴ": {
                 "criteria": [
                     "거의 모든 사람이 진동을 느끼고, 그릇, 창문 등이 깨지기도 하며, 불안정한 물체는 넘어진다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "책상 아래로 들어가 머리와 몸을 보호하고 흔들림이 멈출 때까지 기다리세요.",
+                ],
             },
             "진도 Ⅵ": {
                 "criteria": [
                     "모든 사람이 느끼고, 일부 무거운 가구가 움직이며, 벽의 석회가 떨어지기도 한다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "가구와 물건이 넘어질 수 있으므로 튼튼한 탁자 아래에서 몸을 보호하세요.",
+                ],
             },
             "진도 Ⅶ": {
                 "criteria": [
                     "일반 건물에 약간의 피해가 발생하며, 부실한 건물에는 상당한 피해가 발생한다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "건물과 시설물의 피해가 발생할 수 있으므로 흔들림이 멈춘 후 안전한 장소로 대피하세요.",
+                ],
             },
             "진도 Ⅷ": {
                 "criteria": [
                     "일반 건물에 부분적 붕괴 등 상당한 피해가 발생하며, 부실한 건물에는 심각한 피해가 발생한다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "건물과 구조물이 크게 파손될 수 있으므로 낙하물에 주의하고 신속히 안전한 곳으로 이동하세요.",
+                ],
             },
             "진도 Ⅸ": {
                 "criteria": [
                     "잘 설계된 건물에도 상당한 피해가 발생하며, 일반 건축물에는 붕괴 등 큰 피해가 발생한다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "건물의 심각한 피해와 붕괴 위험이 있으므로 머리를 보호하고 안전한 대피 경로를 확보하세요.",
+                ],
             },
             "진도 Ⅹ": {
                 "criteria": [
                     "대부분의 석조 및 골조 건물이 파괴되고, 기차선로가 휘어진다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "광범위한 건물 파손과 지반 피해가 발생할 수 있으므로 위험 시설물에서 멀리 떨어지세요.",
+                ],
             },
             "진도 Ⅺ": {
                 "criteria": [
                     "남아있는 구조물이 거의 없으며, 다리가 무너지고, 기차선로가 심각하게 휘어진다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "대부분의 건축물이 심각하게 파괴될 수 있으므로 잔해와 지반 균열을 피해 안전한 장소로 대피하세요.",
+                ],
             },
             "진도 Ⅻ": {
                 "criteria": [
                     "모든 것이 피해를 입고, 지표면이 심각하게 뒤틀리며, 물체가 공중으로 튀어 오른다.",
                 ],
                 "criteria_source": "https://www.weather.go.kr/w/earthquake-volcano/phenomenon.do",
-                "steps": [],
+                "steps": [
+                    "광범위한 파괴와 지형 변화가 발생할 수 있으므로 구조 당국의 안내에 따라 안전한 지역으로 대피하세요.",
+                ],
             },
         },
     },
@@ -433,6 +521,7 @@ GUIDES = [
         ],
     },
     # 기상청에 공식 행동요령 페이지가 없어 팀에서 작성한 문구 (공식 문구 아님)
+    # 참고: 모든 재난의 단계별(levels) steps도 팀 작성 문구다. 폭염 중대경보만 기상청 공식 문구.
     {
         "type": "dry", "warning_code": "D", "title": "건조특보 중 행동요령", "source": None,
         "steps": [
@@ -442,7 +531,9 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "산불 위험에 대비해 논밭 소각을 금지하고 화기 취급에 주의하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
@@ -469,17 +560,23 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해안 저지대의 침수 가능성을 확인하고 대피 장소와 경로를 미리 파악하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해안가와 방파제 접근을 자제하고 침수 위험 지역 주민은 대피에 대비하세요.",
+                ],
             },
             "경보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "해안 저지대에서 즉시 벗어나 고지대로 대피하고 안전이 확인될 때까지 접근하지 마세요.",
+                ],
             },
         },
     },
@@ -492,7 +589,9 @@ GUIDES = [
             "예비특보": {
                 "criteria": [],
                 "criteria_source": None,
-                "steps": [],
+                "steps": [
+                    "안개 발생에 대비해 교통정보를 확인하고 운전 시 감속과 안전거리 확보를 준비하세요.",
+                ],
             },
             "주의보": {
                 "criteria": [],

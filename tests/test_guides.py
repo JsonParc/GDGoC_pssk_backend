@@ -79,7 +79,7 @@ def test_get_guide_by_level(client):
     assert body["level"]["steps"] and body["level"]["needs_writing"] is False
 
     caution = client.get("/api/guides/heatwave?level=주의보").json()["level"]
-    assert caution["criteria"] and caution["needs_writing"] is True  # 기준은 공식, 단계 지침은 직접 작성
+    assert caution["criteria"] and caution["steps"] == ["가장 더운 시간대의 야외활동을 줄이고 충분한 수분을 섭취하세요."]
 
     res = client.get("/api/guides/heatwave?level=초특급")
     assert res.status_code == 404 and "주의보" in res.json()["detail"]
@@ -91,3 +91,8 @@ def test_active_guides_are_split_by_level(client):
     wind = next(g for g in items if g["type"] == "strongwind")
     assert wind["level"]["name"] == "주의보"
     assert wind["level"]["criteria"][0].startswith("육상에서 풍속 14m/s")
+
+
+def test_every_level_has_steps():
+    empty = [(g["type"], n) for g in guides.GUIDES for n, lv in g.get("levels", {}).items() if not lv["steps"]]
+    assert empty == []
